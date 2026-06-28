@@ -1,0 +1,45 @@
+# DewiPipe build gate. Real YouTube extraction can't run in CI (datacenter IP is bot-blocked), so
+# this is a compile/assemble gate that protects the fork from build breakage as upstream + the
+# ytdlp-kt SDK move. The app is a composite build (includeBuild ../PipePipeExtractor), so both
+# forks are checked out as siblings.
+name: Build (DewiPipe)
+
+on:
+  push:
+    branches: [dev]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  assemble:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout client
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          path: PipePipeClient
+
+      - name: Checkout extractor (sibling for includeBuild ../PipePipeExtractor)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: dewijones92/PipePipeExtractor
+          ref: main
+          path: PipePipeExtractor
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - name: Install Android SDK 37 (compileSdk 37 / build-tools 37)
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "build-tools;37.0.0"
+
+      - name: Assemble debug APK
+        working-directory: PipePipeClient
+        run: ./gradlew :app:assembleDebug --console=plain
