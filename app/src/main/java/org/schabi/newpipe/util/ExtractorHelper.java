@@ -128,22 +128,21 @@ public final class ExtractorHelper {
     }
 
     public static StreamInfo getNewStreamInfo(final int serviceId, final String url) throws ExtractionException, IOException {
-//        if (true) {
-            return StreamInfo.getInfo(NewPipe.getService(serviceId), url);
-//        }
-//        StreamInfo result = null;
-//        if (!ServiceList.YouTube.isYtdlpEnabled()) {
-//            result = StreamInfo.getInfo(NewPipe.getService(serviceId), url);
-//            if (!result.getAudioStreams().isEmpty() || !result.getVideoStreams().isEmpty()) {
-//                return result;
-//            }
-//        }
-//
-//        StreamInfo fallbackInfo = YtdlpHelper.getFallbackStreams(url);
-//        if(fallbackInfo.getAudioStreams().isEmpty() && fallbackInfo.getVideoStreams().isEmpty()) {
-//            throw new ExtractionException("Couldn't get fallback streams for " + url);
-//        }
-//        return fallbackInfo;
+        // Feature-flagged PRIMARY: when the yt-dlp flag is on for YouTube, resolve via our yt-dlp
+        // API-23 stack first; on any failure (e.g. cloud-IP bot-block) fall back to NewPipe so the
+        // app keeps working.
+        if (serviceId == ServiceList.YouTube.getServiceId() && ServiceList.YouTube.isYtdlpEnabled()) {
+            try {
+                final StreamInfo ytdlpInfo = YtdlpHelper.getFallbackStreams(url);
+                if (!ytdlpInfo.getAudioStreams().isEmpty() || !ytdlpInfo.getVideoStreams().isEmpty()
+                        || !ytdlpInfo.getVideoOnlyStreams().isEmpty()) {
+                    return ytdlpInfo;
+                }
+            } catch (final Exception e) {
+                // fall through to NewPipe
+            }
+        }
+        return StreamInfo.getInfo(NewPipe.getService(serviceId), url);
     }
 
     public static Single<StreamInfo> getStreamInfoWithoutException(final int serviceId, final String url,

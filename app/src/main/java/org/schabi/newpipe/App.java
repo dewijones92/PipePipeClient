@@ -89,6 +89,14 @@ public class App extends MultiDexApplication {
             return;
         }
 
+        // Initialise the yt-dlp API-23 runtime (our L1->L4 stack) so the feature-flagged YouTube
+        // path can resolve streams via yt-dlp. Idempotent; failure is non-fatal (NewPipe still works).
+        try {
+            com.dewijones92.ytdlpkt.YtdlpKt.INSTANCE.init(this);
+        } catch (final Exception e) {
+            Log.e(TAG, "YtdlpKt init failed", e);
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             registerCarConnectionReceiver();
             CarConnection carConnection = new CarConnection(this);
@@ -112,6 +120,12 @@ public class App extends MultiDexApplication {
         NewPipe.init(getDownloader(),
             Localization.getPreferredLocalization(this),
             Localization.getPreferredContentCountry(this));
+
+        // Feature flag: when on, route YouTube stream resolution through our yt-dlp API-23 stack
+        // first (NewPipe remains the fallback — see ExtractorHelper.getNewStreamInfo). Default on
+        // for this PoC; a settings toggle could later gate it via the same preference key.
+        org.schabi.newpipe.extractor.ServiceList.YouTube.setYtdlpEnabled(
+            PreferenceManager.getDefaultSharedPreferences(this).getBoolean("use_ytdlp_youtube", true));
 
         Localization.initPrettyTime(Localization.resolvePrettyTime(getApplicationContext()));
 
