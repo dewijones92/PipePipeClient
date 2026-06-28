@@ -68,6 +68,7 @@ import org.schabi.newpipe.util.ListHelper;
 import org.schabi.newpipe.util.PermissionHelper;
 import org.schabi.newpipe.util.SecondaryStreamHelper;
 import org.schabi.newpipe.util.SimpleOnSeekBarChangeListener;
+import org.schabi.newpipe.util.SponsorBlockDownloader;
 import org.schabi.newpipe.util.StreamItemAdapter;
 import org.schabi.newpipe.util.StreamItemAdapter.StreamSizeWrapper;
 import org.schabi.newpipe.util.ThemeHelper;
@@ -336,6 +337,12 @@ public class DownloadDialog extends DialogFragment
 
         initToolbar(dialogBinding.toolbarLayout.toolbar);
         setupDownloadOptions();
+
+        // SponsorBlock-on-download (YouTube only, via our yt-dlp stack — see prepareSelectedDownload).
+        if (currentInfo != null
+                && currentInfo.getServiceId() == ServiceList.YouTube.getServiceId()) {
+            dialogBinding.sponsorblockRemoveCheckbox.setVisibility(View.VISIBLE);
+        }
 
         prefs = PreferenceManager.getDefaultSharedPreferences(requireContext());
 
@@ -737,6 +744,17 @@ public class DownloadDialog extends DialogFragment
     }
 
     private void prepareSelectedDownload() {
+        // SponsorBlock-on-download via our yt-dlp stack (YouTube only): bypass the giga downloader
+        // and let yt-dlp + the bundled ffmpeg cut sponsor segments during download.
+        if (dialogBinding.sponsorblockRemoveCheckbox.getVisibility() == View.VISIBLE
+                && dialogBinding.sponsorblockRemoveCheckbox.isChecked()) {
+            SponsorBlockDownloader.start(requireContext(), currentInfo.getUrl(), currentInfo.getName());
+            Toast.makeText(requireContext(), R.string.sponsorblock_download_started,
+                    Toast.LENGTH_SHORT).show();
+            dismiss();
+            return;
+        }
+
         final StoredDirectoryHelper mainStorage;
         final MediaFormat format;
         final String selectedMediaType;
