@@ -63,10 +63,10 @@ android {
             if (true) {
                 // default values when branch name could not be determined or is master or dev
                 applicationIdSuffix ".debug"
-                resValue "string", "app_name", "PipePipe Debug"
+                resValue "string", "app_name", "DewiPipe Debug"
             } else {
                 applicationIdSuffix ".debug." + normalizedWorkingBranch
-                resValue "string", "app_name", "PipePipe " + workingBranch
+                resValue "string", "app_name", "DewiPipe " + workingBranch
             }
         }
 
@@ -76,9 +76,9 @@ android {
             }
             if (System.properties.containsKey('packageSuffix')) {
                 applicationIdSuffix System.getProperty('packageSuffix')
-                resValue "string", "app_name", "PipePipe " + System.getProperty('packageSuffix')
+                resValue "string", "app_name", "DewiPipe " + System.getProperty('packageSuffix')
             } else {
-                resValue "string", "app_name", "PipePipe"
+                resValue "string", "app_name", "DewiPipe"
             }
             minifyEnabled true
             shrinkResources false // disabled to fix F-Droid's reproducible build
