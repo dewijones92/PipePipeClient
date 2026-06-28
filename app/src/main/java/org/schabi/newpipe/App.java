@@ -93,8 +93,9 @@ public class App extends MultiDexApplication {
         // path can resolve streams via yt-dlp. Idempotent; failure is non-fatal (NewPipe still works).
         try {
             com.dewijones92.ytdlpkt.YtdlpKt.INSTANCE.init(this);
-        } catch (final Exception e) {
-            Log.e(TAG, "YtdlpKt init failed", e);
+        } catch (final Throwable t) {
+            // Never let runtime init crash the app — NewPipe still works as the fallback.
+            Log.e(TAG, "YtdlpKt init failed", t);
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {

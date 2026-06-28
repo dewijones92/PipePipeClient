@@ -203,7 +203,7 @@ sonarqube {
 
 dependencies {
 /** Desugaring **/
-    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:1.1.5'
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
 
 /** NewPipe libraries **/
     // You can use a local version by uncommenting a few lines in settings.gradle
@@ -219,6 +219,9 @@ dependencies {
  *  -> L4 ytdlp-kt typed SDK). Single dep: ytdlp-kt's library/ffmpeg/aria2c + their jniLibs come
  *  transitively at runtime scope. https://github.com/dewijones92/youtubedl-android **/
     implementation 'com.github.dewijones92.youtubedl-android:ytdlp-kt:v0.23.0-api23'
+
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test:runner:1.5.2'
 
     ktlint 'com.pinterest:ktlint:0.44.0'
 
