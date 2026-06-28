@@ -87,6 +87,7 @@ public class YtdlpHelper {
                 itag.setCodec(acodec);
                 itag.setBitrate(f.getTotalBitrateKbps());
                 itag.setSampleRate(f.getAudioSampleRate());
+                noDashRange(itag);
                 audioStreams.add(new AudioStream.Builder()
                         .setId(info.getId() + UUID.randomUUID().toString().replaceAll("[^a-zA-Z]", ""))
                         .setContent(pppUrl, true)
@@ -108,6 +109,7 @@ public class YtdlpHelper {
                 itag.setBitrate(f.getTotalBitrateKbps());
                 itag.setWidth(f.getWidth());
                 itag.setHeight(f.getHeight());
+                noDashRange(itag);
                 final VideoStream stream = new VideoStream.Builder()
                         .setContent(pppUrl, true)
                         .setMediaFormat(format)
@@ -136,6 +138,16 @@ public class YtdlpHelper {
         streamInfo.setVideoStreams(videoStreams);
         streamInfo.setVideoOnlyStreams(videoOnlyStreams);
         return streamInfo;
+    }
+
+    private static void noDashRange(final ItagItem itag) {
+        // yt-dlp doesn't give us DASH init/index byte-ranges here; set -1 so ExoPlayer streams the
+        // URL progressively instead of attempting an invalid subrange (IllegalArgumentException in
+        // DataSpec.subrange / InitializationChunk.load).
+        itag.setInitStart(-1);
+        itag.setInitEnd(-1);
+        itag.setIndexStart(-1);
+        itag.setIndexEnd(-1);
     }
 
     private static int parseItag(final String formatId) {
