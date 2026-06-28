@@ -34,11 +34,15 @@ jobs:
           distribution: temurin
           java-version: "25"
 
-      - name: Install Android SDK 37 (compileSdk 37 / build-tools 37)
+      - name: Install Android SDK 37 (compileSdk 37 is a preview platform)
         run: |
-          set -euo pipefail
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37" "build-tools;37.0.0"
+          set -uo pipefail
+          SM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SM" --licenses >/dev/null 2>&1 || true
+          # android-37 is a preview SDK -> not in the stable channel; try canary then stable.
+          "$SM" --channel=3 "platforms;android-37" "build-tools;37.0.0" \
+            || "$SM" "platforms;android-37" "build-tools;37.0.0" \
+            || echo "::warning::could not install android-37 from sdkmanager (preview); assemble step will reveal if it's preinstalled"
 
       - name: Assemble debug APK
         working-directory: PipePipeClient
