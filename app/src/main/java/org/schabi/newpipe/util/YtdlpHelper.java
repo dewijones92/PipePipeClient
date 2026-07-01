@@ -10,16 +10,23 @@ import org.schabi.newpipe.extractor.exceptions.AntiBotException;
 import org.schabi.newpipe.extractor.exceptions.GeographicRestrictionException;
 import org.schabi.newpipe.extractor.exceptions.ParsingException;
 import org.schabi.newpipe.extractor.exceptions.PrivateContentException;
+import org.schabi.newpipe.extractor.localization.DateWrapper;
 import org.schabi.newpipe.extractor.services.youtube.ItagItem;
 import org.schabi.newpipe.extractor.stream.AudioStream;
+import org.schabi.newpipe.extractor.stream.Description;
 import org.schabi.newpipe.extractor.stream.StreamInfo;
 import org.schabi.newpipe.extractor.stream.StreamType;
+import org.schabi.newpipe.extractor.stream.SubtitlesStream;
 import org.schabi.newpipe.extractor.stream.VideoStream;
 
 import java.io.IOException;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -88,13 +95,20 @@ public class YtdlpHelper {
                 itag.setBitrate(f.getTotalBitrateKbps());
                 itag.setSampleRate(f.getAudioSampleRate());
                 noDashRange(itag);
-                audioStreams.add(new AudioStream.Builder()
+                final AudioStream.Builder audioBuilder = new AudioStream.Builder()
                         .setId(info.getId() + UUID.randomUUID().toString().replaceAll("[^a-zA-Z]", ""))
                         .setContent(pppUrl, true)
                         .setItagItem(itag)
                         .setMediaFormat(format)
-                        .setAverageBitrate(f.getTotalBitrateKbps())
-                        .build());
+                        .setAverageBitrate(f.getTotalBitrateKbps());
+                final String audioLang = f.getLanguage();
+                if (audioLang != null && !audioLang.isEmpty()) {
+                    // Multi-audio / dubbed track: expose the language for track selection.
+                    audioBuilder.setAudioTrackId(audioLang)
+                            .setAudioTrackName(f.getFormatNote() != null ? f.getFormatNote() : audioLang)
+                            .setAudioLocale(audioLang);
+                }
+                audioStreams.add(audioBuilder.build());
             } else {
                 // Video (muxed) or video-only
                 final boolean videoOnly = aNone;
@@ -123,10 +137,17 @@ public class YtdlpHelper {
         }
         Collections.sort(audioStreams, Comparator.comparingInt(AudioStream::getBitrate).reversed());
 
-        if (!audioStreams.isEmpty() && videoStreams.isEmpty() && videoOnlyStreams.isEmpty()) {
-            streamInfo.setStreamType(StreamType.AUDIO_STREAM);
+        final boolean audioOnly = !audioStreams.isEmpty()
+                && videoStreams.isEmpty() && videoOnlyStreams.isEmpty();
+        if (info.isLive()) {
+            streamInfo.setStreamType(audioOnly
+                    ? StreamType.AUDIO_LIVE_STREAM : StreamType.LIVE_STREAM);
+            final String hlsUrl = firstManifestUrl(info);
+            if (hlsUrl != null) {
+                streamInfo.setHlsUrl(hlsUrl);
+            }
         } else {
-            streamInfo.setStreamType(StreamType.VIDEO_STREAM);
+            streamInfo.setStreamType(audioOnly ? StreamType.AUDIO_STREAM : StreamType.VIDEO_STREAM);
         }
 
         streamInfo.setName(info.getTitle() == null ? "" : info.getTitle());
@@ -134,10 +155,91 @@ public class YtdlpHelper {
         streamInfo.setThumbnailUrl(info.getThumbnailUrl());
         streamInfo.setDuration(info.getDurationSeconds());
         streamInfo.setUploaderName(info.getUploader());
+        applyMetadata(streamInfo, info);
         streamInfo.setAudioStreams(audioStreams);
         streamInfo.setVideoStreams(videoStreams);
         streamInfo.setVideoOnlyStreams(videoOnlyStreams);
+        streamInfo.setSubtitles(buildSubtitles(info));
         return streamInfo;
+    }
+
+    /** First HLS/DASH manifest URL among the formats (used as the live stream URL). */
+    private static String firstManifestUrl(final MediaInfo info) {
+        for (final com.dewijones92.ytdlpkt.MediaFormat f : info.getFormats()) {
+            final String m = f.getManifestUrl();
+            if (m != null && !m.isEmpty()) {
+                return m;
+            }
+        }
+        return null;
+    }
+
+    /** Map ytdlp-kt subtitles/auto-captions to NewPipe SubtitlesStreams (mediaFormat may be null). */
+    private static ArrayList<SubtitlesStream> buildSubtitles(final MediaInfo info) {
+        final ArrayList<SubtitlesStream> out = new ArrayList<>();
+        for (final com.dewijones92.ytdlpkt.MediaSubtitle s : info.getSubtitles()) {
+            if (s.getUrl() == null || s.getUrl().isEmpty()) {
+                continue;
+            }
+            out.add(new SubtitlesStream.Builder()
+                    .setId(s.getLanguageCode() + (s.getAutoGenerated() ? "-auto" : ""))
+                    .setContent(s.getUrl(), true)
+                    .setMediaFormat(MediaFormat.getFromSuffix(s.getExt()))
+                    .setLanguageCode(s.getLanguageCode())
+                    .setAutoGenerated(s.getAutoGenerated())
+                    .build());
+        }
+        return out;
+    }
+
+    /** #17 Cycle A: map ytdlp-kt MediaInfo metadata onto the NewPipe StreamInfo. */
+    private static void applyMetadata(final StreamInfo streamInfo, final MediaInfo info) {
+        final String description = info.getDescription();
+        if (description != null && !description.isEmpty()) {
+            streamInfo.setDescription(new Description(description, Description.PLAIN_TEXT));
+        }
+        streamInfo.setViewCount(info.getViewCount());
+        streamInfo.setLikeCount(info.getLikeCount());
+        streamInfo.setDislikeCount(info.getDislikeCount());
+
+        final String uploadDate = info.getUploadDate();
+        if (uploadDate != null && uploadDate.length() == 8) {
+            streamInfo.setTextualUploadDate(uploadDate);
+            try {
+                streamInfo.setUploadDate(new DateWrapper(LocalDate
+                        .parse(uploadDate, DateTimeFormatter.BASIC_ISO_DATE)
+                        .atStartOfDay().atOffset(ZoneOffset.UTC)));
+            } catch (final RuntimeException ignored) {
+                // unparseable date: keep the textual form, skip the structured one
+            }
+        }
+
+        final List<String> categories = info.getCategories();
+        if (categories != null && !categories.isEmpty()) {
+            streamInfo.setCategory(categories.get(0));
+        }
+        final List<String> tags = info.getTags();
+        if (tags != null && !tags.isEmpty()) {
+            streamInfo.setTags(new ArrayList<>(tags));
+        }
+        final String uploaderUrl = channelUrlFromUploaderId(info.getUploaderId());
+        if (uploaderUrl != null) {
+            streamInfo.setUploaderUrl(uploaderUrl);
+        }
+    }
+
+    /** Best-effort channel URL from yt-dlp's uploader_id ("@handle" or a "UC..." channel id). */
+    private static String channelUrlFromUploaderId(final String uploaderId) {
+        if (uploaderId == null || uploaderId.isEmpty()) {
+            return null;
+        }
+        if (uploaderId.startsWith("@")) {
+            return "https://www.youtube.com/" + uploaderId;
+        }
+        if (uploaderId.startsWith("UC")) {
+            return "https://www.youtube.com/channel/" + uploaderId;
+        }
+        return null;
     }
 
     private static void noDashRange(final ItagItem itag) {
