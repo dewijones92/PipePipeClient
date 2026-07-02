@@ -28,6 +28,9 @@ dependencyResolutionManagement {
         mavenCentral()
         maven { url "https://jitpack.io" }
         maven { url "https://clojars.org/repo" }
+        // Local ytdlp-kt dev cycle: publishToMavenLocal in ../youtubedl-android publishes
+        // io.github.junkfood02.youtubedl-android:* ; the released dep is the JitPack coordinate.
+        mavenLocal()
     }
 }
 

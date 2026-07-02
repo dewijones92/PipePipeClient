@@ -98,6 +98,9 @@ public class App extends MultiDexApplication {
             // Never let runtime init crash the app — NewPipe still works as the fallback.
             Log.e(TAG, "YtdlpKt init failed", t);
         }
+        // Bridge sessions clean up after themselves on release; this catches leftovers from
+        // process kills (an orphaned ffmpeg's dir would otherwise linger in the cache).
+        org.schabi.newpipe.util.YtdlpBridge.sweepCacheDir(this);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             registerCarConnectionReceiver();

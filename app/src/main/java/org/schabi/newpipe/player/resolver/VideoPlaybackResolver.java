@@ -24,6 +24,7 @@ import org.schabi.newpipe.player.helper.PlayerHelper;
 import org.schabi.newpipe.player.mediaitem.MediaItemTag;
 import org.schabi.newpipe.player.mediaitem.StreamInfoTag;
 import org.schabi.newpipe.util.ListHelper;
+import org.schabi.newpipe.util.YtdlpBridge;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -143,7 +144,32 @@ public class VideoPlaybackResolver implements PlaybackResolver {
                 .map(MediaItemTag.Quality::getSelectedVideoStream)
                 .orElse(null);
 
-        if (video != null) {
+        // Audio selection is computed before the video source: both the separated-audio merge
+        // and the yt-dlp local bridge (which muxes the audio in) need it.
+        final List<AudioStream> audioStreams = ListHelper.getFilteredAudioStreams(context,
+                playbackAudioStreams
+                        .stream().filter(s -> !blacklistUrls.contains(s.getContent()))
+                        .collect(Collectors.toList()));
+        final int audioIndex = ListHelper.getAudioFormatIndex(context, audioStreams, audioTrack);
+        final AudioStream audio = audioStreams.isEmpty() || audioIndex == -1
+                ? null : audioStreams.get(audioIndex);
+
+        // yt-dlp adaptive video-only streams are not directly playable (fragmented MP4 / adaptive
+        // WebM without init/index ranges fail as progressive media). Deliver through the local
+        // bridge instead: the bundled ffmpeg remuxes video+audio into a local HLS playlist and
+        // ExoPlayer plays only the local files. The download starts lazily on first period
+        // creation, so preloaded queue neighbours don't spawn ffmpeg. Audio is muxed into the
+        // bridge output, so no separate audio source is merged.
+        final boolean bridgedDelivery = video != null && video.getDeliveryMethod()
+                == org.schabi.newpipe.extractor.stream.DeliveryMethod.YTDLP;
+        if (bridgedDelivery) {
+            mediaSources.add(YtdlpBridge.buildBridgedSource(context, video, audio, tag));
+            streamSourceType = audio != null
+                    ? SourceType.VIDEO_WITH_SEPARATED_AUDIO
+                    : SourceType.VIDEO_WITH_AUDIO_OR_AUDIO_ONLY;
+        }
+
+        if (!bridgedDelivery && video != null) {
             try {
                 final MediaSource streamSource = PlaybackResolver.buildMediaSource(
                         dataSource, video, info, PlayerHelper.cacheKeyOf(info, video), tag);
@@ -162,15 +188,6 @@ public class VideoPlaybackResolver implements PlaybackResolver {
             }
         }
 
-        // Create optional audio stream source
-        final List<AudioStream> audioStreams = ListHelper.getFilteredAudioStreams(context,
-                playbackAudioStreams
-                        .stream().filter(s -> !blacklistUrls.contains(s.getContent()))
-                        .collect(Collectors.toList()));
-        final int audioIndex = ListHelper.getAudioFormatIndex(context, audioStreams, audioTrack);
-        final AudioStream audio = audioStreams.isEmpty() || audioIndex == -1
-                ? null : audioStreams.get(audioIndex);
-
         // Use the audio stream if there is no video stream, or
         // merge with audio stream in case if video does not contain audio
         // SABR carries audio + video in one MediaSource, so don't add a separate audio source.
@@ -178,18 +195,20 @@ public class VideoPlaybackResolver implements PlaybackResolver {
                 == org.schabi.newpipe.extractor.stream.DeliveryMethod.SABR;
         final boolean videoHasMatchingAudio = video != null && !video.isVideoOnly()
                 && audioTrack != null && audioTrack.equals(video.getAudioTrackId());
-        if (audio != null && !videoHasMatchingAudio && !videoIsSabr
-                && (video == null || video.isVideoOnly() || audioTrack != null)) {
-            try {
-                final MediaSource audioSource = PlaybackResolver.buildMediaSource(
-                        dataSource, audio, info, PlayerHelper.cacheKeyOf(info, audio), tag);
-                mediaSources.add(audioSource);
-                streamSourceType = SourceType.VIDEO_WITH_SEPARATED_AUDIO;
-            } catch (final IOException e) {
-                return null;
+        if (!bridgedDelivery) {
+            if (audio != null && !videoHasMatchingAudio && !videoIsSabr
+                    && (video == null || video.isVideoOnly() || audioTrack != null)) {
+                try {
+                    final MediaSource audioSource = PlaybackResolver.buildMediaSource(
+                            dataSource, audio, info, PlayerHelper.cacheKeyOf(info, audio), tag);
+                    mediaSources.add(audioSource);
+                    streamSourceType = SourceType.VIDEO_WITH_SEPARATED_AUDIO;
+                } catch (final IOException e) {
+                    return null;
+                }
+            } else {
+                streamSourceType = SourceType.VIDEO_WITH_AUDIO_OR_AUDIO_ONLY;
             }
-        } else {
-            streamSourceType = SourceType.VIDEO_WITH_AUDIO_OR_AUDIO_ONLY;
         }
 
         // If there is no audio or video sources, then this media source cannot be played back

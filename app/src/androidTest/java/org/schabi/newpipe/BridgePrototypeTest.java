@@ -1,56 +1,56 @@
 package org.schabi.newpipe;
 
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
-import android.net.Uri;
 import android.util.Log;
 
-import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.VideoSize;
-import androidx.media3.datasource.DefaultDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.exoplayer.hls.HlsMediaSource;
+import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.video.PlaceholderSurface;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 
-import com.dewijones92.ytdlpkt.MediaFormat;
-import com.dewijones92.ytdlpkt.MediaInfo;
 import com.dewijones92.ytdlpkt.YtdlpKt;
 
 import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.schabi.newpipe.extractor.stream.AudioStream;
+import org.schabi.newpipe.extractor.stream.DeliveryMethod;
+import org.schabi.newpipe.extractor.stream.StreamInfo;
+import org.schabi.newpipe.extractor.stream.VideoStream;
+import org.schabi.newpipe.player.mediaitem.MediaItemTag;
+import org.schabi.newpipe.player.mediaitem.StreamInfoTag;
+import org.schabi.newpipe.util.YtdlpBridge;
+import org.schabi.newpipe.util.YtdlpHelper;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.InputStreamReader;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Collections;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Local-bridge playback prototype (approved long-term architecture): yt-dlp resolves the format
- * URLs, the bundled ffmpeg fetches video-only + audio-only from googlevideo and remuxes them
- * (-c copy) into a GROWING local HLS event playlist, and ExoPlayer plays ONLY the local
- * file:// playlist — it never touches googlevideo. This sidesteps the real-device
- * ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED failures (adaptive DASH/WebM streams fed to ExoPlayer
- * as progressive) while keeping quality above the itag-18 360p ceiling.
- *
- * Proven on host first (googlevideo accepts ffmpeg's GETs; ~1x-realtime throttling noted as a
- * later perf item). Needs a non-datacenter network; run on the local emulator.
+ * End-to-end proof of the local-bridge playback architecture on a real API-23 device, through
+ * the PRODUCTION path: YtdlpHelper resolves the StreamInfo (video-only streams marked
+ * {@code DeliveryMethod.YTDLP}), YtdlpBridge builds the lazily-starting bridged MediaSource
+ * (bundled ffmpeg remuxing googlevideo video+audio into a growing local HLS playlist), and
+ * ExoPlayer plays ONLY the local playlist. Also proves the lifecycle: releasing the player kills
+ * ffmpeg and deletes the bridge dir. Needs a non-datacenter network; run on the local emulator.
  */
 @RunWith(AndroidJUnit4.class)
 public class BridgePrototypeTest {
 
     private static final String TAG = "BridgeProto";
+    // Has a 720p h264 video-only format (itag 136) — the bridge's showcase over the 360p itag 18.
     private static final String VIDEO_URL = "https://www.youtube.com/watch?v=nfe9q8ZA4Ag";
 
     @BeforeClass
@@ -60,62 +60,50 @@ public class BridgePrototypeTest {
     }
 
     @Test
-    public void bridgeMuxesToLocalHlsAndVideoPlayerReachesReady() throws Exception {
+    public void bridgedSourcePlays720pFromLocalHlsAndCleansUp() throws Exception {
         final Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
 
-        // 1. Resolve format URLs through our stack (same call the app makes).
-        final MediaInfo info = YtdlpKt.resolveBlocking(VIDEO_URL);
-        MediaFormat video = null;
-        MediaFormat audio = null;
-        for (final MediaFormat f : info.getFormats()) {
-            final String url = f.getUrl();
-            if (url == null || !url.startsWith("http") || f.getManifestUrl() != null) {
+        // 1. Resolve through the app's own mapping: video-only streams must carry YTDLP delivery.
+        final StreamInfo info = YtdlpHelper.getFallbackStreams(VIDEO_URL);
+        // Pick the highest video-only stream up to 1080p — deliberately NOT forcing h264, so this
+        // exercises the codec yt-dlp actually offers at that quality (VP9 for 720p/1080p
+        // video-only). This is the path that broke over MPEG-TS; fMP4 segments must carry it.
+        // (Capped at 1080 to keep the emulator's software VP9 decoder + mux fast, not because the
+        // feature is limited.)
+        VideoStream video = null;
+        for (final VideoStream s : info.getVideoOnlyStreams()) {
+            if (s.getDeliveryMethod() != DeliveryMethod.YTDLP || s.getHeight() > 1080) {
                 continue;
             }
-            final boolean vNone = f.getVcodec() == null || "none".equals(f.getVcodec());
-            final boolean aNone = f.getAcodec() == null || "none".equals(f.getAcodec());
-            if (!vNone && aNone && f.getVcodec().startsWith("avc")
-                    && f.getHeight() > 0 && f.getHeight() <= 720
-                    && (video == null || f.getHeight() > video.getHeight())) {
-                video = f; // best h264 video-only up to 720p (reliable HW/SW decode on old devices)
-            } else if (vNone && !aNone && f.getAcodec().startsWith("mp4a")
-                    && (audio == null || f.getTotalBitrateKbps() > audio.getTotalBitrateKbps())) {
-                audio = f; // best AAC audio-only (muxes cleanly into TS segments)
+            if (video == null || s.getHeight() > video.getHeight()) {
+                video = s;
             }
         }
-        assertTrue("no suitable video format resolved", video != null);
-        assertTrue("no suitable audio format resolved", audio != null);
-        Log.i(TAG, "picked video=" + video.getFormatId() + " " + video.getHeight() + "p"
-                + " audio=" + audio.getFormatId() + " " + audio.getTotalBitrateKbps() + "kbps");
+        assertNotNull("no video-only stream with YTDLP delivery", video);
+        AudioStream audio = info.getAudioStreams().isEmpty()
+                ? null : info.getAudioStreams().get(0); // bitrate-sorted desc: best first
+        assertNotNull("no audio stream", audio);
+        Log.i(TAG, "picked video=" + video.getResolution() + " codec=" + video.getCodec()
+                + " audio=" + audio.getBitrate());
 
-        // 2. Bundled ffmpeg: googlevideo -> growing local HLS, stream copy (no re-encode).
-        final File hlsDir = new File(ctx.getCacheDir(), "bridge-proto");
-        deleteRecursive(hlsDir);
-        hlsDir.mkdirs();
-        final File playlist = new File(hlsDir, "index.m3u8");
-        final Process ffmpeg = startBundledFfmpeg(ctx, video.getUrl(), audio.getUrl(),
-                new File(hlsDir, "seg%04d.ts").getAbsolutePath(), playlist.getAbsolutePath());
-        try {
-            // Wait for the playlist + a couple of segments so the player has a startup buffer.
-            final long muxDeadline = System.currentTimeMillis() + 120_000;
-            while (countSegments(hlsDir) < 2 || !playlist.exists()) {
-                assertTrue("ffmpeg exited early, exit=" + exitCodeOrRunning(ffmpeg),
-                        isRunning(ffmpeg));
-                assertTrue("timed out waiting for local HLS segments",
-                        System.currentTimeMillis() < muxDeadline);
-                Thread.sleep(1000);
-            }
-            Log.i(TAG, "local HLS live: segments=" + countSegments(hlsDir));
+        // 2. The production bridged source (lazy masking + session lifecycle inside).
+        final MediaItemTag tag = StreamInfoTag.of(info, Collections.singletonList(video), 0);
+        final MediaSource bridged = YtdlpBridge.buildBridgedSource(ctx, video, audio, tag);
 
-            // 3. ExoPlayer plays ONLY the local playlist, on a real video surface.
-            playLocalHlsAndAssert(ctx, Uri.fromFile(playlist));
-        } finally {
-            ffmpeg.destroy();
+        // 3. Play it; the bridge (ffmpeg) must start lazily and feed the local playlist.
+        playAndAssert(ctx, bridged);
+
+        // 4. Lifecycle: player release must kill ffmpeg and delete the bridge dir (async).
+        final File bridgeRoot = new File(ctx.getCacheDir(), "ytdlp-bridge");
+        final long deadline = System.currentTimeMillis() + 15_000;
+        while (countChildren(bridgeRoot) > 0 && System.currentTimeMillis() < deadline) {
+            Thread.sleep(500);
         }
+        assertTrue("bridge dir not cleaned up after release: " + countChildren(bridgeRoot),
+                countChildren(bridgeRoot) == 0);
     }
 
-    private void playLocalHlsAndAssert(final Context ctx, final Uri localPlaylist)
-            throws Exception {
+    private void playAndAssert(final Context ctx, final MediaSource source) throws Exception {
         final AtomicReference<ExoPlayer> playerRef = new AtomicReference<>();
         final AtomicReference<PlaybackException> errorRef = new AtomicReference<>();
         final AtomicReference<VideoSize> sizeRef = new AtomicReference<>();
@@ -146,17 +134,16 @@ public class BridgePrototypeTest {
                     ready.countDown();
                 }
             });
-            player.setMediaSource(new HlsMediaSource.Factory(
-                    new DefaultDataSource.Factory(ctx))
-                    .createMediaSource(MediaItem.fromUri(localPlaylist)));
+            player.setMediaSource(source);
             player.setPlayWhenReady(true);
             player.prepare();
             playerRef.set(player);
         });
 
         try {
-            assertTrue("player never reached READY", ready.await(60, TimeUnit.SECONDS));
-            assertNull("playback error on local HLS", errorRef.get());
+            assertTrue("player never reached READY (bridge warm-up + stub playlist polling)",
+                    ready.await(90, TimeUnit.SECONDS));
+            assertNull("playback error on bridged local HLS", errorRef.get());
 
             Thread.sleep(6000);
             final AtomicLong position = new AtomicLong();
@@ -166,9 +153,12 @@ public class BridgePrototypeTest {
             final VideoSize size = sizeRef.get();
             Log.i(TAG, "RESULT position=" + position.get() + "ms"
                     + " videoSize=" + (size == null ? "none" : size.width + "x" + size.height));
-            assertTrue("video track not decoded (no size reported)",
-                    size != null && size.width > 0);
+            // The crux: a real video frame decoded. Under MPEG-TS with VP9 this stayed null
+            // (audio-only), which is the exact regression fMP4 fixes.
+            assertNotNull("video track not decoded (no size reported)", size);
+            assertTrue("video not decoded at full height, got " + size.height, size.height >= 720);
             assertTrue("position did not advance: " + position.get(), position.get() > 1500);
+            assertFalse("bridge produced no local segments", listSegments(ctx).isEmpty());
         } finally {
             InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
                 final ExoPlayer p = playerRef.get();
@@ -179,75 +169,25 @@ public class BridgePrototypeTest {
         }
     }
 
-    /** Exec the bundled (L1 from-source, API-23) ffmpeg with the env YoutubeDL uses. */
-    private static Process startBundledFfmpeg(final Context ctx, final String videoUrl,
-            final String audioUrl, final String segmentPattern, final String playlistPath)
-            throws Exception {
-        final File binDir = new File(ctx.getApplicationInfo().nativeLibraryDir);
-        final File ffmpeg = new File(binDir, "libffmpeg.so");
-        assertTrue("bundled ffmpeg missing: " + ffmpeg, ffmpeg.exists());
-        final File packages = new File(new File(ctx.getNoBackupFilesDir(), "youtubedl-android"),
-                "packages");
-
-        final ProcessBuilder pb = new ProcessBuilder(ffmpeg.getAbsolutePath(),
-                "-nostdin", "-loglevel", "warning",
-                "-i", videoUrl, "-i", audioUrl,
-                "-map", "0:v", "-map", "1:a", "-c", "copy",
-                "-f", "hls", "-hls_time", "4", "-hls_playlist_type", "event",
-                "-hls_segment_filename", segmentPattern, playlistPath);
-        final Map<String, String> env = new HashMap<>(pb.environment());
-        env.put("LD_LIBRARY_PATH", new File(packages, "python/usr/lib").getAbsolutePath()
-                + ":" + new File(packages, "ffmpeg/usr/lib").getAbsolutePath()
-                + ":" + new File(packages, "aria2c/usr/lib").getAbsolutePath());
-        env.put("SSL_CERT_FILE",
-                new File(packages, "python/usr/etc/tls/cert.pem").getAbsolutePath());
-        env.put("TMPDIR", ctx.getCacheDir().getAbsolutePath());
-        pb.environment().clear();
-        pb.environment().putAll(env);
-        pb.redirectErrorStream(true);
-        final Process p = pb.start();
-        new Thread(() -> {
-            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream()))) {
-                String line;
-                while ((line = r.readLine()) != null) {
-                    Log.i(TAG, "ffmpeg: " + line);
+    private static java.util.List<String> listSegments(final Context ctx) {
+        final java.util.List<String> out = new java.util.ArrayList<>();
+        final File root = new File(ctx.getCacheDir(), "ytdlp-bridge");
+        final File[] dirs = root.listFiles();
+        if (dirs != null) {
+            for (final File d : dirs) {
+                final File[] segs = d.listFiles((dir, n) -> n.endsWith(".m4s"));
+                if (segs != null) {
+                    for (final File s : segs) {
+                        out.add(s.getName());
+                    }
                 }
-            } catch (final Exception ignored) {
-                // stream closes when ffmpeg is destroyed
-            }
-        }, "bridge-ffmpeg-log").start();
-        return p;
-    }
-
-    private static int countSegments(final File dir) {
-        final File[] segs = dir.listFiles((d, n) -> n.endsWith(".ts"));
-        return segs == null ? 0 : segs.length;
-    }
-
-    private static boolean isRunning(final Process p) {
-        try {
-            p.exitValue();
-            return false;
-        } catch (final IllegalThreadStateException e) {
-            return true;
-        }
-    }
-
-    private static String exitCodeOrRunning(final Process p) {
-        try {
-            return String.valueOf(p.exitValue());
-        } catch (final IllegalThreadStateException e) {
-            return "running";
-        }
-    }
-
-    private static void deleteRecursive(final File f) {
-        final File[] children = f.listFiles();
-        if (children != null) {
-            for (final File c : children) {
-                deleteRecursive(c);
             }
         }
-        f.delete();
+        return out;
+    }
+
+    private static int countChildren(final File dir) {
+        final File[] children = dir.listFiles();
+        return children == null ? 0 : children.length;
     }
 }

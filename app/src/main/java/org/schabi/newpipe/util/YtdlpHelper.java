@@ -13,6 +13,7 @@ import org.schabi.newpipe.extractor.exceptions.PrivateContentException;
 import org.schabi.newpipe.extractor.localization.DateWrapper;
 import org.schabi.newpipe.extractor.services.youtube.ItagItem;
 import org.schabi.newpipe.extractor.stream.AudioStream;
+import org.schabi.newpipe.extractor.stream.DeliveryMethod;
 import org.schabi.newpipe.extractor.stream.Description;
 import org.schabi.newpipe.extractor.stream.StreamInfo;
 import org.schabi.newpipe.extractor.stream.StreamType;
@@ -124,25 +125,23 @@ public class YtdlpHelper {
                 itag.setWidth(f.getWidth());
                 itag.setHeight(f.getHeight());
                 noDashRange(itag);
-                final VideoStream stream = new VideoStream.Builder()
+                final VideoStream.Builder videoBuilder = new VideoStream.Builder()
                         .setContent(pppUrl, true)
                         .setMediaFormat(format)
                         .setId(info.getId())
                         .setItagItem(itag)
                         .setIsVideoOnly(videoOnly)
-                        .setResolution(resolution)
-                        .build();
-                (videoOnly ? videoOnlyStreams : videoStreams).add(stream);
+                        .setResolution(resolution);
+                if (videoOnly) {
+                    // Adaptive video-only formats (fragmented MP4 / adaptive WebM, no init/index
+                    // ranges) can't be fed to ExoPlayer as progressive media — they fail with
+                    // ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED on real devices. Mark them for the
+                    // local bridge: VideoPlaybackResolver remuxes them via the bundled ffmpeg into
+                    // a local HLS playlist and plays that instead of this URL.
+                    videoBuilder.setDeliveryMethod(DeliveryMethod.YTDLP);
+                }
+                (videoOnly ? videoOnlyStreams : videoStreams).add(videoBuilder.build());
             }
-        }
-        // Interim safety (until the local-bridge player lands): yt-dlp's adaptive video-only
-        // formats are fragmented-MP4 ("ftyp dash") or adaptive WebM containers with no init/index
-        // byte-ranges, so feeding them to ExoPlayer as progressive fails on real devices with
-        // ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED (UnrecognizedInputFormatException). The muxed
-        // progressive stream (itag 18, "ftyp mp42") is the only reliably playable video, so when
-        // one exists drop the adaptive video-only set. Costs quality (360p ceiling) but plays.
-        if (!videoStreams.isEmpty()) {
-            videoOnlyStreams.clear();
         }
         Collections.sort(audioStreams, Comparator.comparingInt(AudioStream::getBitrate).reversed());
 
