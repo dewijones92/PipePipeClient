@@ -1821,8 +1821,10 @@ public final class Player implements
         }
 
         // Feed the real play head to any live SABR session (no-op otherwise).
-        getCurrentStreamInfo().ifPresent(info ->
-                SabrSessionStore.updatePlayerTime(info.getId(), currentProgress));
+        getCurrentStreamInfo().ifPresent(info -> {
+            SabrSessionStore.updatePlayerTime(info.getId(), currentProgress);
+            SabrSessionStore.updatePlaybackRate(info.getId(), getPlaybackSpeed());
+        });
 
         if (duration != binding.playbackSeekBar.getMax()) {
             setVideoDurationToControls(duration);
@@ -3159,6 +3161,9 @@ public final class Player implements
 
         saveStreamProgressState();
         boolean isCatchableException = false;
+        final boolean sabrSessionInvalidated = error.getCause() != null
+                && error.getCause().getMessage() != null
+                && error.getCause().getMessage().startsWith("SABR session invalidated");
 
         switch (error.errorCode) {
             case ERROR_CODE_BEHIND_LIVE_WINDOW:
@@ -3204,6 +3209,9 @@ public final class Player implements
             case ERROR_CODE_IO_NETWORK_CONNECTION_FAILED:
             case ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT:
             case ERROR_CODE_UNSPECIFIED:
+                if (sabrSessionInvalidated) {
+                    isCatchableException = true;
+                }
                 setRecovery();
                 // SABR: recover at the saved position, not 0 (see shouldSeek).
                 seekOnNextSabrReload = true;

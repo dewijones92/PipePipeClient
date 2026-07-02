@@ -1728,7 +1728,6 @@
     <string name="filter_future_items_key">filter_future_items_key</string>
     <string name="use_experimental_new_ui_key">use_experimental_new_ui</string>
     <string name="force_end_on_overtime_key">force_end_on_overtime</string>
-    <string name="force_sabr_key">force_sabr</string>
     <string name="use_old_search_filter_key">use_old_search_filter</string>
     <string name="main_tabs_position_key">main_tabs_position</string>
     <string name="disable_exoplayer_media_codec_async_queueing_key">disable_exoplayer_media_codec_async_queueing_key</string>
@@ -1768,5 +1767,18 @@
         <item>bn</item>
         <item>id</item>
         <item>ar</item>
+    </string-array>
+    <string name="export_data_to_newpipe_key">export_data_to_newpipe</string>
+    <string name="use_dns_over_https_fallback_key">use_dns_over_https_fallback</string>
+    <string name="youtube_player_client_key">youtube_player_client</string>
+    <string-array name="youtube_player_client_entries">
+        <item>MWEB</item>
+        <item>WEB Safari</item>
+        <item>WEB</item>
+    </string-array>
+    <string-array name="youtube_player_client_values">
+        <item>mweb</item>
+        <item>web_safari</item>
+        <item>web</item>
     </string-array>
 </resources>

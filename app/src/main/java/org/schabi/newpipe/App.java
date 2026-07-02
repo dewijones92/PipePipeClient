@@ -20,6 +20,7 @@ import org.acra.config.CoreConfigurationBuilder;
 import org.schabi.newpipe.error.ReCaptchaActivity;
 import org.schabi.newpipe.extractor.NewPipe;
 import org.schabi.newpipe.extractor.downloader.Downloader;
+import org.schabi.newpipe.extractor.services.youtube.YoutubeApiDecoder;
 import org.schabi.newpipe.ktx.ExceptionUtils;
 import org.schabi.newpipe.settings.NewPipeSettings;
 import org.schabi.newpipe.util.*;
@@ -121,6 +122,8 @@ public class App extends MultiDexApplication {
         NewPipe.init(getDownloader(),
             Localization.getPreferredLocalization(this),
             Localization.getPreferredContentCountry(this));
+        final WebViewJavaScriptDecoder decoder = new WebViewJavaScriptDecoder(this);
+        YoutubeApiDecoder.setLocalDecoder(decoder);
 
         // Feature flag: when on, route YouTube stream resolution through our yt-dlp API-23 stack
         // first (NewPipe remains the fallback — see ExtractorHelper.getNewStreamInfo). Default on
@@ -137,7 +140,8 @@ public class App extends MultiDexApplication {
 
         // Initialize image loader
         final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
-        NewPipe.setForceSabr(prefs.getBoolean(getString(R.string.force_sabr_key), false));
+        NewPipe.setYoutubePlayerClient(prefs.getString(
+                getString(R.string.youtube_player_client_key), "mweb"));
         PicassoHelper.init(this);
         PicassoHelper.setShouldLoadImages(
                 prefs.getBoolean(getString(R.string.download_thumbnail_key), true));
@@ -174,7 +178,9 @@ public class App extends MultiDexApplication {
 
 
     protected Downloader getDownloader() {
-        final DownloaderImpl downloader = DownloaderImpl.init(null);
+        final SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        final DownloaderImpl downloader = DownloaderImpl.init(null, prefs.getBoolean(
+                getString(R.string.use_dns_over_https_fallback_key), false));
         setCookiesToDownloader(downloader);
         return downloader;
     }

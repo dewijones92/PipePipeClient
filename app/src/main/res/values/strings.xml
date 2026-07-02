@@ -1040,8 +1040,6 @@
 <string name="use_experimental_new_ui_summary">Use the new Compose-based UI, still being optimized. Changing this will restart the app.</string>
 <string name="force_end_on_overtime_title">Force end on overtime</string>
 <string name="force_end_on_overtime_summary">Force end playback when current position exceeds stream duration, as a workaround for streams that do not stop naturally</string>
-<string name="force_sabr_title">Force SABR</string>
-<string name="force_sabr_summary">Route all YouTube videos through the SABR pipeline instead of DASH/HLS. Experimental: may cause playback failures on some devices or videos</string>
 <string name="use_old_search_filter_title">Use old search filter</string>
 <string name="use_old_search_filter_summary">Use the old menu-based search filter instead of the new dialog UI</string>
 <string name="main_tabs_position_summary">Move main tab selector to the bottom</string>
@@ -1069,4 +1067,10 @@
 <string name="show_auto_translated_subtitles_summary">Show YouTube auto-translated subtitles. Requires YouTube login.</string>
 <string name="show_auto_translated_subtitles_login_required_summary">Disabled because YouTube login is required for auto-translated subtitles.</string>
 <string name="auto_translated_subtitles_language_title">Auto-translate subtitles to</string>
+<string name="export_data_to_newpipe_title">Export to NewPipe</string>
+<string name="export_data_to_newpipe_summary">Export backup in a NewPipe-compatible format</string>
+<string name="settings_category_other_platforms_title">Other platforms</string>
+<string name="use_dns_over_https_fallback_title">Use DNS over HTTPS fallback</string>
+<string name="use_dns_over_https_fallback_summary">Retry failed system DNS lookups using Cloudflare DNS over HTTPS. Changing this will restart the app.</string>
+<string name="youtube_player_client_title">YouTube extraction endpoint</string>
 </resources>

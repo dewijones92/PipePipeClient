@@ -6,6 +6,7 @@ import androidx.annotation.Nullable;
 import androidx.preference.PreferenceManager;
 import com.grack.nanojson.JsonParserException;
 import okhttp3.*;
+import okhttp3.dnsoverhttps.DnsOverHttps;
 import org.schabi.newpipe.error.ReCaptchaActivity;
 import org.schabi.newpipe.extractor.downloader.CancellableCall;
 import org.schabi.newpipe.extractor.downloader.Downloader;
@@ -28,6 +29,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.UnknownHostException;
+import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.KeyStore;
@@ -50,14 +52,17 @@ public final class DownloaderImpl extends Downloader {
     private static DownloaderImpl instance;
     private final Map<String, String> mCookies;
     private final OkHttpClient client;
+    private final boolean dnsOverHttpsFallbackEnabled;
     private Integer customTimeout;
 
-    private DownloaderImpl(final OkHttpClient.Builder builder) {
+    private DownloaderImpl(final OkHttpClient.Builder builder,
+                           final boolean dnsOverHttpsFallbackEnabled) {
         this.client = builder
                 .readTimeout(30, TimeUnit.SECONDS)
 //                .cache(new Cache(new File(context.getExternalCacheDir(), "okhttp"),
 //                        16 * 1024 * 1024))
                 .build();
+        this.dnsOverHttpsFallbackEnabled = dnsOverHttpsFallbackEnabled;
         this.mCookies = new HashMap<>();
     }
 
@@ -68,15 +73,59 @@ public final class DownloaderImpl extends Downloader {
      * @return a new instance of {@link DownloaderImpl}
      */
     public static DownloaderImpl init(@Nullable final OkHttpClient.Builder builder) {
+        return init(builder, false);
+    }
+
+    public static DownloaderImpl init(@Nullable final OkHttpClient.Builder builder,
+                                      final boolean useDnsOverHttpsFallback) {
+        final OkHttpClient.Builder clientBuilder = builder != null
+                ? builder : new OkHttpClient.Builder();
+        if (useDnsOverHttpsFallback) {
+            final Dns systemDns = Dns.SYSTEM;
+            final DnsOverHttps dnsOverHttps = new DnsOverHttps.Builder()
+                    .client(new OkHttpClient.Builder().build())
+                    .url(HttpUrl.get("https://cloudflare-dns.com/dns-query"))
+                    .bootstrapDnsHosts(
+                            ipAddress(new byte[]{1, 1, 1, 1}),
+                            ipAddress(new byte[]{1, 0, 0, 1}))
+                    .build();
+            clientBuilder.dns(hostname -> {
+                try {
+                    return systemDns.lookup(hostname);
+                } catch (final UnknownHostException systemException) {
+                    try {
+                        return dnsOverHttps.lookup(hostname);
+                    } catch (final UnknownHostException dohException) {
+                        dohException.addSuppressed(systemException);
+                        throw dohException;
+                    }
+                }
+            });
+        }
         instance = new DownloaderImpl(
-                builder != null ? builder : new OkHttpClient.Builder());
+                clientBuilder, useDnsOverHttpsFallback);
         return instance;
+    }
+
+    private static InetAddress ipAddress(final byte[] address) {
+        try {
+            return InetAddress.getByAddress(address);
+        } catch (final UnknownHostException e) {
+            throw new IllegalArgumentException(e);
+        }
     }
 
     public static DownloaderImpl getInstance() {
         return instance;
     }
 
+    public OkHttpClient getClient() {
+        return client;
+    }
+
+    public boolean isDnsOverHttpsFallbackEnabled() {
+        return dnsOverHttpsFallbackEnabled;
+    }
     public DownloaderImpl setCustomTimeout(final Integer value) {
         this.customTimeout = value;
         return this;

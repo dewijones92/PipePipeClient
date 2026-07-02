@@ -598,9 +598,9 @@ public class SearchFragment extends BaseListFragment<SearchInfo, ListExtractor.I
                     + lastSearchedString);
         }
         searchEditText.setText(searchString);
-        if (channelSearchMode) {
-            searchEditText.setHint(getString(R.string.search_inside_channel, channelName));
-        }
+        searchEditText.setHint(channelSearchMode
+                ? getString(R.string.search_inside_channel, channelName)
+                : getString(R.string.search));
 
         if (TextUtils.isEmpty(searchString) || TextUtils.isEmpty(searchEditText.getText())) {
             searchToolbarContainer.setTranslationX(100);

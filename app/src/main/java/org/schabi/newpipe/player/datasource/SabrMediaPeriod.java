@@ -1,5 +1,7 @@
 package org.schabi.newpipe.player.datasource;
 
+import android.util.Log;
+
 import androidx.annotation.Nullable;
 
 import androidx.media3.common.C;
@@ -34,6 +36,7 @@ import java.util.List;
  */
 final class SabrMediaPeriod implements MediaPeriod,
         SequenceableLoader.Callback<ChunkSampleStream<SabrChunkSource>> {
+    private static final String TAG = "SabrMediaPeriod";
 
     private final SabrSessionStore.Holder holder;
     private final Localization localization;
@@ -75,11 +78,15 @@ final class SabrMediaPeriod implements MediaPeriod,
         this.trackGroups = new TrackGroupArray(
                 new TrackGroup("sabr-video", videoFormat),
                 new TrackGroup("sabr-audio", audioFormat));
+        Log.d(TAG, "create period video=" + holder.videoId
+                + " videoItag=" + holder.videoFormat.getItag()
+                + " audioItag=" + holder.audioFormat.getItag());
     }
 
     @Override
     public void prepare(final MediaPeriod.Callback cb, final long positionUs) {
         this.callback = cb;
+        Log.d(TAG, "prepare video=" + holder.videoId + " positionUs=" + positionUs);
         cb.onPrepared(this);
     }
 
@@ -96,6 +103,8 @@ final class SabrMediaPeriod implements MediaPeriod,
     public long selectTracks(final ExoTrackSelection[] selections, final boolean[] mayRetainFlags,
                              final SampleStream[] outStreams, final boolean[] streamResetFlags,
                              final long positionUs) {
+        Log.d(TAG, "selectTracks video=" + holder.videoId
+                + " selections=" + selections.length + " positionUs=" + positionUs);
         // Release streams no longer wanted; create streams for newly selected tracks.
         for (int i = 0; i < selections.length; i++) {
             if (outStreams[i] instanceof ChunkSampleStream && (selections[i] == null
@@ -114,8 +123,31 @@ final class SabrMediaPeriod implements MediaPeriod,
                 streamResetFlags[i] = true;
             }
         }
+        updateActiveTracks(selections);
         rebuildCompositeLoader();
         return positionUs;
+    }
+
+    private void updateActiveTracks(final ExoTrackSelection[] selections) {
+        boolean videoActive = false;
+        boolean audioActive = false;
+        for (final ExoTrackSelection selection : selections) {
+            if (selection == null) {
+                continue;
+            }
+            final int groupIndex = trackGroups.indexOf(selection.getTrackGroup());
+            if (groupIndex < 0) {
+                continue;
+            }
+            if (trackTypes[groupIndex] == C.TRACK_TYPE_VIDEO) {
+                videoActive = true;
+            } else if (trackTypes[groupIndex] == C.TRACK_TYPE_AUDIO) {
+                audioActive = true;
+            }
+        }
+        holder.setActiveTracks(videoActive, audioActive);
+        Log.d(TAG, "activeTracks video=" + holder.videoId
+                + " video=" + videoActive + " audio=" + audioActive);
     }
 
     private ChunkSampleStream<SabrChunkSource> buildStream(final ExoTrackSelection selection,
@@ -123,6 +155,11 @@ final class SabrMediaPeriod implements MediaPeriod,
         final TrackGroup group = selection.getTrackGroup();
         final int groupIndex = trackGroups.indexOf(group);
         final Format trackFormat = group.getFormat(0);
+        Log.d(TAG, "buildStream video=" + holder.videoId
+                + " groupIndex=" + groupIndex
+                + " trackType=" + trackTypes[groupIndex]
+                + " itag=" + sabrFormats[groupIndex].getItag()
+                + " positionUs=" + positionUs);
         final SabrChunkSource chunkSource = new SabrChunkSource(holder, sabrFormats[groupIndex],
                 trackFormat, trackTypes[groupIndex], localization);
         // Last 3 args are new in media3 1.10 (handleInitialDiscontinuity, firstChunkStartTimeUs,
@@ -252,10 +289,12 @@ final class SabrMediaPeriod implements MediaPeriod,
     }
 
     void release() {
+        Log.d(TAG, "release period video=" + holder.videoId);
         for (final ChunkSampleStream<SabrChunkSource> s : streams) {
             s.release();
         }
         streams.clear();
+        holder.setActiveTracks(false, false);
     }
 
     /** No-op loader used before any track is selected. */

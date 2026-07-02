@@ -54,6 +54,19 @@ public class AdvancedSettingsFragment extends BasePreferenceFragment implements 
                     return true;
                 });
 
+        findPreference(getString(R.string.use_dns_over_https_fallback_key))
+                .setOnPreferenceChangeListener((preference, newValue) -> {
+                    defaultPreferences.edit()
+                            .putBoolean(getString(R.string.use_dns_over_https_fallback_key),
+                                    (Boolean) newValue)
+                            .commit();
+                    final Activity activity = getActivity();
+                    if (activity != null) {
+                        NavigationHelper.restartApp(activity);
+                    }
+                    return true;
+                });
+
         if (DeviceUtils.isTv(getContext())) {
             findPreference(getString(R.string.use_old_search_filter_key)).setVisible(false);
         }
@@ -95,8 +108,8 @@ public class AdvancedSettingsFragment extends BasePreferenceFragment implements 
             ServiceHelper.initServices(this.getContext());
         } else if (key.equals(getString(R.string.auto_translated_subtitles_language_key))) {
             ServiceHelper.initServices(this.getContext());
-        } else if (key.equals(getString(R.string.force_sabr_key))) {
-            NewPipe.setForceSabr(sharedPreferences.getBoolean(key, false));
+        } else if (key.equals(getString(R.string.youtube_player_client_key))) {
+            NewPipe.setYoutubePlayerClient(sharedPreferences.getString(key, "mweb"));
         }
     }
 

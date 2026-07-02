@@ -55,11 +55,12 @@ public class YouTubeAccountSettingsFragment extends BaseAccountSettingsFragment 
         String cookies = data.getStringExtra("cookies");
         String pot = data.getStringExtra("pot");
 
-        defaultPreferences.edit().putString(getCookiesKey(), cookies).apply();
-        defaultPreferences.edit().putString(getString(R.string.youtube_po_token_key), pot).apply();
-
         try {
             YoutubeParsingHelper.getAuthorizationHeader(cookies);
+            defaultPreferences.edit()
+                    .putString(getCookiesKey(), cookies)
+                    .putString(getString(R.string.youtube_po_token_key), pot)
+                    .apply();
             onLoginSuccess();
         } catch (Exception e) {
             Toast.makeText(requireContext(), R.string.try_again, Toast.LENGTH_SHORT).show();
