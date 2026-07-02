@@ -183,8 +183,6 @@ dependencies {
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test:runner:1.5.2'
 
-    ktlint 'com.pinterest:ktlint:0.44.0'
-
 /** Kotlin **/
     implementation "org.jetbrains.kotlin:kotlin-stdlib"
     implementation 'androidx.compose.animation:animation:1.11.3'
