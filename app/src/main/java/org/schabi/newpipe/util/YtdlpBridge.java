@@ -46,23 +46,123 @@ public final class YtdlpBridge {
     private YtdlpBridge() {
     }
 
+    /**
+     * Active bridged playback, remembered per selected-video URL so the Player can (a) know the
+     * current item is bridge-delivered and (b) rebuild the source at a new offset on a far seek.
+     */
+    public static final class ActiveBridge {
+        final VideoStream video;
+        @Nullable
+        final AudioStream audio;
+        final MediaItemTag tag;
+        /** Media time where this session's real (non-gap) content begins. */
+        public final long playableFromMs;
+
+        ActiveBridge(final VideoStream video, @Nullable final AudioStream audio,
+                     final MediaItemTag tag, final long playableFromMs) {
+            this.video = video;
+            this.audio = audio;
+            this.tag = tag;
+            this.playableFromMs = playableFromMs;
+        }
+    }
+
+    /** Keyed by selected video content URL; tiny LRU — entries are just stream references. */
+    private static final java.util.LinkedHashMap<String, ActiveBridge> REGISTRY =
+            new java.util.LinkedHashMap<String, ActiveBridge>(8, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(
+                        final java.util.Map.Entry<String, ActiveBridge> eldest) {
+                    return size() > 8;
+                }
+            };
+
+    /** The ActiveBridge for the currently playing item, or null if it isn't bridge-delivered. */
+    @Nullable
+    public static ActiveBridge infoFor(@Nullable final MediaItemTag tag) {
+        if (tag == null) {
+            return null;
+        }
+        final VideoStream selected = tag.getMaybeQuality()
+                .map(MediaItemTag.Quality::getSelectedVideoStream).orElse(null);
+        if (selected == null) {
+            return null;
+        }
+        synchronized (REGISTRY) {
+            return REGISTRY.get(selected.getContent());
+        }
+    }
+
+    /**
+     * Seek-triggered remux, step 1: is [targetMs] unreachable in the current session — beyond
+     * the muxed edge (a local seek would stall for minutes at ~1x mux rate) or inside the
+     * session's skipped gap head?
+     */
+    public static boolean needsJump(@NonNull final ActiveBridge bridge, final long targetMs,
+                                    final long windowDurationMs) {
+        return targetMs > windowDurationMs + JUMP_AHEAD_SLACK_MS
+                || targetMs < bridge.playableFromMs - JUMP_BACK_SLACK_MS;
+    }
+
+    /**
+     * Seek-triggered remux, step 2: record the jump target, then have the caller run the normal
+     * stream-reload flow (setRecovery + reloadPlayQueueManager). When the resolver rebuilds this
+     * video's bridged source it consumes the pending target and muxes from there, with the
+     * skipped head declared as EXT-X-GAP so positions stay in true media time.
+     */
+    public static void requestJump(@NonNull final ActiveBridge bridge, final long targetMs) {
+        Log.i(TAG, "seek jump requested to " + targetMs + "ms (playableFrom="
+                + bridge.playableFromMs + "ms)");
+        synchronized (PENDING_JUMPS) {
+            PENDING_JUMPS.put(bridge.video.getContent(), (int) (targetMs / 1000));
+        }
+    }
+
+    /** Seeks this close to an edge wait in place instead of remuxing. */
+    private static final long JUMP_AHEAD_SLACK_MS = 5_000;
+    private static final long JUMP_BACK_SLACK_MS = 2_000;
+
+    /** videoUrl -> pending remux start offset (sec), consumed by the next source build. */
+    private static final java.util.HashMap<String, Integer> PENDING_JUMPS =
+            new java.util.HashMap<>();
+
     /** Bridged MediaSource for a yt-dlp video-only stream (+ best audio); starts lazily. */
     @NonNull
     public static MediaSource buildBridgedSource(@NonNull final Context context,
                                                  @NonNull final VideoStream video,
                                                  @Nullable final AudioStream audio,
                                                  @NonNull final MediaItemTag tag) {
+        final Integer pendingJump;
+        synchronized (PENDING_JUMPS) {
+            pendingJump = PENDING_JUMPS.remove(video.getContent());
+        }
+        return buildBridgedSource(context, video, audio, tag,
+                pendingJump == null ? 0 : pendingJump);
+    }
+
+    /** As above, muxing from [startAtSec] with the skipped head declared as EXT-X-GAP. */
+    @NonNull
+    public static MediaSource buildBridgedSource(@NonNull final Context context,
+                                                 @NonNull final VideoStream video,
+                                                 @Nullable final AudioStream audio,
+                                                 @NonNull final MediaItemTag tag,
+                                                 final int startAtSec) {
         final File outputDir = new File(new File(context.getCacheDir(), CACHE_SUBDIR),
                 UUID.randomUUID().toString());
         final LocalHlsBridgeSession session = YtdlpKt.newLocalHlsBridge(
                 stripPppId(video.getContent()),
                 audio == null ? null : stripPppId(audio.getContent()),
-                outputDir);
+                outputDir, 4, startAtSec);
         // Stub playlist only — the HLS source can prepare against it (publishing a timeline)
         // without any download; ffmpeg is launched by YtdlpBridgeMediaSource on first period
         // creation, i.e. only when this item is actually about to play.
         session.prepareOutput();
-        Log.i(TAG, "bridging " + video.getResolution() + " via local HLS at " + outputDir);
+        synchronized (REGISTRY) {
+            REGISTRY.put(video.getContent(),
+                    new ActiveBridge(video, audio, tag, session.getStartAtMs()));
+        }
+        Log.i(TAG, "bridging " + video.getResolution() + " from " + startAtSec
+                + "s via local HLS at " + outputDir);
 
         final HlsMediaSource localHlsSource = new HlsMediaSource.Factory(
                 new DefaultDataSource.Factory(context))

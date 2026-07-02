@@ -1915,9 +1915,18 @@ public final class Player implements
             return;
         }
 
+        // yt-dlp local bridge: the exo window only spans the muxed content (+ any gap head), so
+        // the seekbar must use the full stream duration for far targets to be requestable at
+        // all (seekTo then remuxes from the target).
+        final int uiDuration;
+        if (currentItem != null && YtdlpBridge.infoFor(currentMetadata) != null) {
+            uiDuration = (int) (currentItem.getDuration() * 1000);
+        } else {
+            uiDuration = (int) simpleExoPlayer.getDuration();
+        }
         onUpdateProgress(
                 currentProgress,
-                (int) simpleExoPlayer.getDuration(),
+                uiDuration,
                 simpleExoPlayer.getBufferedPercentage());
         triggerCheckForSponsorBlockSegments(currentProgress, isRewind,
                 isGracedRewind, bypassSecondaryMode, isUnSkip);
@@ -3483,6 +3492,21 @@ case ERROR_CODE_DECODER_INIT_FAILED: {
             Log.d(TAG, "seekBy() called with: position = [" + positionMillis + "]");
         }
         if (!exoPlayerIsNull()) {
+            // yt-dlp local bridge: a target beyond the muxed edge (or inside a previous jump's
+            // skipped head) can't be served locally — a plain seek would stall for as long as
+            // the mux takes to reach it. Remux from the target instead: record the jump and run
+            // the normal stream-reload flow; the resolver rebuilds the bridged source starting
+            // there and recovery resumes at the requested position.
+            final YtdlpBridge.ActiveBridge bridge = YtdlpBridge.infoFor(currentMetadata);
+            if (bridge != null && playQueue != null
+                    && YtdlpBridge.needsJump(bridge, positionMillis,
+                            simpleExoPlayer.getDuration())) {
+                YtdlpBridge.requestJump(bridge, positionMillis);
+                setRecovery(playQueue.getIndex(), positionMillis);
+                reloadPlayQueueManager();
+                return;
+            }
+
             // prevent invalid positions when fast-forwarding/-rewinding
             long normalizedPositionMillis = positionMillis;
             if (normalizedPositionMillis < 0) {
