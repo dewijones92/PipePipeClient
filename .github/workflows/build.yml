@@ -7,6 +7,7 @@ name: Build (DewiPipe)
 on:
   push:
     branches: [dev]
+    tags: ['ytdlp-poc-v*']
   pull_request:
   workflow_dispatch:
 
@@ -18,19 +19,19 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout client
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           path: PipePipeClient
 
       - name: Checkout extractor (sibling for includeBuild ../PipePipeExtractor)
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           repository: dewijones92/PipePipeExtractor
           ref: main
           path: PipePipeExtractor
 
       - name: Set up JDK 25
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
+        uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
         with:
           distribution: temurin
           java-version: "25"
@@ -65,3 +66,20 @@ jobs:
           cp "$D"/*-x86_64-debug.apk    DewiPipe-x86_64.apk
           gh release upload ytdlp-poc-v1 DewiPipe-arm64-v8a.apk DewiPipe-x86_64.apk \
             --repo "$GITHUB_REPOSITORY" --clobber
+
+      # On a ytdlp-poc-v* tag, cut a versioned milestone release (create, or upload if it exists).
+      - name: Publish versioned milestone release
+        if: startsWith(github.ref, 'refs/tags/ytdlp-poc-v')
+        working-directory: PipePipeClient
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="$GITHUB_REF_NAME"
+          D=app/build/outputs/apk/debug
+          cp "$D"/*-arm64-v8a-debug.apk "DewiPipe-$TAG-arm64-v8a.apk"
+          cp "$D"/*-x86_64-debug.apk    "DewiPipe-$TAG-x86_64.apk"
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "DewiPipe $TAG" --generate-notes \
+            "DewiPipe-$TAG-arm64-v8a.apk" "DewiPipe-$TAG-x86_64.apk" \
+          || gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "DewiPipe-$TAG-arm64-v8a.apk" "DewiPipe-$TAG-x86_64.apk"
