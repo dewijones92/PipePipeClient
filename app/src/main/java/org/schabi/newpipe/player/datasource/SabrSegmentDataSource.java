@@ -152,6 +152,7 @@ public final class SabrSegmentDataSource implements DataSource {
                 + " itag=" + itag
                 + " bytes=" + data.length
                 + " range=" + range);
+        holder.session.getStreamState().ingestInitializationData(format, data);
         holder.setInitializationData(itag, data);
         return data;
     }
