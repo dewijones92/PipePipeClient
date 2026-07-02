@@ -10,7 +10,8 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions: {}
+permissions:
+  contents: write   # publish step uploads the built APKs to the ytdlp-poc-v1 release
 
 jobs:
   assemble:
@@ -47,3 +48,20 @@ jobs:
       - name: Assemble debug APK
         working-directory: PipePipeClient
         run: ./gradlew :app:assembleDebug --console=plain
+
+      # CD: on dev pushes, publish the built APKs to the rolling sideload release. Stable asset
+      # names + --clobber keep exactly one arm64 + one x86_64 asset, always the latest dev build.
+      # (Build needs no network, so this works despite CI's YouTube bot-block; on-device
+      # verification stays a local step.)
+      - name: Publish APKs to rolling release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        working-directory: PipePipeClient
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          D=app/build/outputs/apk/debug
+          cp "$D"/*-arm64-v8a-debug.apk DewiPipe-arm64-v8a.apk
+          cp "$D"/*-x86_64-debug.apk    DewiPipe-x86_64.apk
+          gh release upload ytdlp-poc-v1 DewiPipe-arm64-v8a.apk DewiPipe-x86_64.apk \
+            --repo "$GITHUB_REPOSITORY" --clobber
