@@ -135,6 +135,15 @@ public class YtdlpHelper {
                 (videoOnly ? videoOnlyStreams : videoStreams).add(stream);
             }
         }
+        // Interim safety (until the local-bridge player lands): yt-dlp's adaptive video-only
+        // formats are fragmented-MP4 ("ftyp dash") or adaptive WebM containers with no init/index
+        // byte-ranges, so feeding them to ExoPlayer as progressive fails on real devices with
+        // ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED (UnrecognizedInputFormatException). The muxed
+        // progressive stream (itag 18, "ftyp mp42") is the only reliably playable video, so when
+        // one exists drop the adaptive video-only set. Costs quality (360p ceiling) but plays.
+        if (!videoStreams.isEmpty()) {
+            videoOnlyStreams.clear();
+        }
         Collections.sort(audioStreams, Comparator.comparingInt(AudioStream::getBitrate).reversed());
 
         final boolean audioOnly = !audioStreams.isEmpty()
