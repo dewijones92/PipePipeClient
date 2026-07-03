@@ -4098,6 +4098,13 @@ case ERROR_CODE_DECODER_INIT_FAILED: {
     @Override // own playback listener
     @Nullable
     public MediaSource sourceOf(final PlayQueueItem item, final StreamInfo info) {
+        // yt-dlp bridge: if this item has a resume/recovery position (e.g. playback history), the
+        // bridge must mux from there — otherwise it starts at 0 and the direct recovery seekTo
+        // lands far ahead of the mux edge and buffers for minutes. A pending far-seek jump still
+        // takes priority inside the resolver.
+        videoResolver.setBridgeStartPositionMs(
+                item != null && item.getRecoveryPosition() != PlayQueueItem.RECOVERY_UNSET
+                        ? item.getRecoveryPosition() : 0);
         if (audioPlayerSelected()) {
             return Optional.ofNullable(audioResolver.resolve(info)).orElse(videoResolver.resolve(info)) ;
         }

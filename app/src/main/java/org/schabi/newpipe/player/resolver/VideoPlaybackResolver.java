@@ -48,6 +48,8 @@ public class VideoPlaybackResolver implements PlaybackResolver {
     private int selectedIndex = -1;
     @Nullable
     private String audioTrack;
+    /** Resume/recovery position (ms) to start a yt-dlp bridge session at; 0 = from the beginning. */
+    private long bridgeStartPositionMs;
 
     private List<String> blacklistUrls = new ArrayList<>();
 
@@ -163,7 +165,8 @@ public class VideoPlaybackResolver implements PlaybackResolver {
         final boolean bridgedDelivery = video != null && video.getDeliveryMethod()
                 == org.schabi.newpipe.extractor.stream.DeliveryMethod.YTDLP;
         if (bridgedDelivery) {
-            mediaSources.add(YtdlpBridge.buildBridgedSource(context, video, audio, tag));
+            mediaSources.add(YtdlpBridge.buildBridgedSource(context, video, audio, tag,
+                    bridgeStartPositionMs));
             streamSourceType = audio != null
                     ? SourceType.VIDEO_WITH_SEPARATED_AUDIO
                     : SourceType.VIDEO_WITH_AUDIO_OR_AUDIO_ONLY;
@@ -297,5 +300,14 @@ public class VideoPlaybackResolver implements PlaybackResolver {
 
     public void setAudioTrack(@Nullable final String audioTrack) {
         this.audioTrack = audioTrack;
+    }
+
+    /**
+     * Resume position (ms) the next resolved yt-dlp bridge source should mux from, so a recovery
+     * seek to it lands in muxed content rather than far ahead of a from-zero mux edge. Set per
+     * resolve from the play-queue item's recovery position; 0 means start from the beginning.
+     */
+    public void setBridgeStartPositionMs(final long bridgeStartPositionMs) {
+        this.bridgeStartPositionMs = bridgeStartPositionMs;
     }
 }

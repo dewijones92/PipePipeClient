@@ -221,13 +221,39 @@ public final class YtdlpBridge {
                                                  @NonNull final VideoStream video,
                                                  @Nullable final AudioStream audio,
                                                  @NonNull final MediaItemTag tag) {
+        return buildBridgedSource(context, video, audio, tag, 0L);
+    }
+
+    /**
+     * As above, but mux from [resumeMs] (a playback-history/recovery position) so a recovery seek
+     * lands in muxed content instead of far ahead of a from-zero mux edge. A pending explicit
+     * far-seek jump still takes priority; a resume below {@link #RESUME_MIN_MS} starts from 0
+     * (not worth the gap-prefix overhead for a near-start resume). {@code long} overload to keep
+     * it distinct from the {@code int startAtSec} builder.
+     */
+    @NonNull
+    public static MediaSource buildBridgedSource(@NonNull final Context context,
+                                                 @NonNull final VideoStream video,
+                                                 @Nullable final AudioStream audio,
+                                                 @NonNull final MediaItemTag tag,
+                                                 final long resumeMs) {
         final Integer pendingJump;
         synchronized (PENDING_JUMPS) {
             pendingJump = PENDING_JUMPS.remove(video.getContent());
         }
-        return buildBridgedSource(context, video, audio, tag,
-                pendingJump == null ? 0 : pendingJump);
+        final int startAtSec;
+        if (pendingJump != null) {
+            startAtSec = pendingJump;
+        } else if (resumeMs >= RESUME_MIN_MS) {
+            startAtSec = (int) (resumeMs / 1000);
+        } else {
+            startAtSec = 0;
+        }
+        return buildBridgedSource(context, video, audio, tag, startAtSec);
     }
+
+    /** Below this a resume position isn't worth muxing-from (a from-zero start is fine). */
+    private static final long RESUME_MIN_MS = 15_000;
 
     /** As above, muxing from [startAtSec] with the skipped head declared as EXT-X-GAP. */
     @NonNull
