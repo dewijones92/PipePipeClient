@@ -19,8 +19,13 @@ android {
         minSdk 23
         //noinspection OldTargetApi,ExpiredTargetSdkVersion
         targetSdk 35
-        versionCode 1101
-        versionName "5.2.1-beta4"
+        // DewiPipe versioning: derived from git so every commit (and so every CD-published APK)
+        // carries a strictly increasing version — Android needs versionCode to grow for updates,
+        // and Obtainium compares versions to detect them. Base = upstream PipePipe's versionCode
+        // (1101 = 5.2.1-beta4); when an upstream merge bumps theirs, update the base and the
+        // versionName prefix here (resolve the conflict favouring this scheme).
+        versionCode 1101 * 10000 + getGitCommitCount()
+        versionName "5.2.1-beta4-dewi." + getGitCommitCount()
         multiDexEnabled true
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -296,6 +301,20 @@ dependencies {
 //    implementation 'com.arthenica:ffmpeg-kit-https:6.0-2.LTS'
     implementation project(':ffmpeg')
     implementation 'com.arthenica:smart-exception-java:0.2.1'
+}
+
+static int getGitCommitCount() {
+    try {
+        def gitProcess = "git rev-list --count HEAD".execute()
+        gitProcess.waitFor()
+        if (gitProcess.exitValue() == 0) {
+            return gitProcess.text.trim().toInteger()
+        }
+        return 0
+    } catch (IOException | NumberFormatException ignored) {
+        // no git (e.g. source tarball build): fall back to the bare base version
+        return 0
+    }
 }
 
 static String getGitWorkingBranch() {

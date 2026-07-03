@@ -22,6 +22,9 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           path: PipePipeClient
+          # Full history: the app version (versionCode/versionName) derives from the commit
+          # count, so a shallow clone would collapse every CI build to the same version.
+          fetch-depth: 0
 
       - name: Checkout extractor (sibling for includeBuild ../PipePipeExtractor)
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
