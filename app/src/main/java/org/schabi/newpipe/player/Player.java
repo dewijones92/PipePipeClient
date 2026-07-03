@@ -410,6 +410,8 @@ public final class Player implements
     private SponsorBlockMode sponsorBlockMode = SponsorBlockMode.DISABLED;
     private int lastSkipTarget = -1;
     private SponsorBlockSegment lastSegment;
+    /** While a seamless yt-dlp bridge jump pre-warms, the media time to pin the seekbar to (-1 = none). */
+    private long pendingSeamlessSeekMs = -1;
     private boolean autoSkipGracePeriod = false;
 
     private final SharedPreferences.OnSharedPreferenceChangeListener preferenceChangeListener;
@@ -1901,7 +1903,12 @@ public final class Player implements
         } else {
             duration = (int) simpleExoPlayer.getDuration();
         }
-        final int currentProgress = Math.max((int) simpleExoPlayer.getCurrentPosition(), 0);
+        // During a seamless bridge jump pre-warm the old source is still playing at the old
+        // position; pin the reported progress to the jump target so the seekbar shows where the
+        // user is going, not where the outgoing stream is.
+        final int currentProgress = pendingSeamlessSeekMs >= 0
+                ? (int) pendingSeamlessSeekMs
+                : Math.max((int) simpleExoPlayer.getCurrentPosition(), 0);
 
         if (prefs.getBoolean(context.getString(R.string.force_end_on_overtime_key), false)
                 && currentItem != null
@@ -1928,8 +1935,12 @@ public final class Player implements
                 currentProgress,
                 uiDuration,
                 simpleExoPlayer.getBufferedPercentage());
-        triggerCheckForSponsorBlockSegments(currentProgress, isRewind,
-                isGracedRewind, bypassSecondaryMode, isUnSkip);
+        // Don't run SponsorBlock skipping against the pinned target while a jump pre-warms — the
+        // outgoing stream is elsewhere and a skip's seekTo would re-enter the jump logic.
+        if (pendingSeamlessSeekMs < 0) {
+            triggerCheckForSponsorBlockSegments(currentProgress, isRewind,
+                    isGracedRewind, bypassSecondaryMode, isUnSkip);
+        }
     }
 
     private void triggerCheckForSponsorBlockSegments(final int currentProgress,
@@ -2398,6 +2409,7 @@ public final class Player implements
         currentMetadata = null;
         simpleExoPlayer.stop();
         isPrepared = false;
+        pendingSeamlessSeekMs = -1;
 
         changeState(STATE_BLOCKED);
     }
@@ -3501,9 +3513,17 @@ case ERROR_CODE_DECODER_INIT_FAILED: {
             if (bridge != null && playQueue != null
                     && YtdlpBridge.needsJump(bridge, positionMillis,
                             simpleExoPlayer.getDuration())) {
-                YtdlpBridge.requestJump(bridge, positionMillis);
-                setRecovery(playQueue.getIndex(), positionMillis);
-                reloadPlayQueueManager();
+                // Seamless jump: keep the current video playing while a jump session pre-warms
+                // (ffmpeg fetches from the target); reload onto it only once it has a segment, so
+                // the reload's buffering is momentary. Pin the seekbar to the target meanwhile so
+                // it doesn't animate back to the old position during the warm-up.
+                final int queueIndex = playQueue.getIndex();
+                pendingSeamlessSeekMs = positionMillis;
+                YtdlpBridge.requestSeamlessJump(context, bridge, positionMillis, () -> {
+                    setRecovery(queueIndex, positionMillis);
+                    reloadPlayQueueManager();
+                    pendingSeamlessSeekMs = -1;
+                });
                 return;
             }
 
