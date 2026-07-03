@@ -12,6 +12,8 @@ import org.schabi.newpipe.extractor.exceptions.ParsingException;
 import org.schabi.newpipe.extractor.exceptions.PrivateContentException;
 import org.schabi.newpipe.extractor.localization.DateWrapper;
 import org.schabi.newpipe.extractor.services.youtube.ItagItem;
+import org.schabi.newpipe.extractor.sponsorblock.SponsorBlockApiSettings;
+import org.schabi.newpipe.extractor.sponsorblock.SponsorBlockExtractorHelper;
 import org.schabi.newpipe.extractor.stream.AudioStream;
 import org.schabi.newpipe.extractor.stream.DeliveryMethod;
 import org.schabi.newpipe.extractor.stream.Description;
@@ -168,6 +170,7 @@ public class YtdlpHelper {
         streamInfo.setVideoStreams(videoStreams);
         streamInfo.setVideoOnlyStreams(videoOnlyStreams);
         streamInfo.setSubtitles(buildSubtitles(info));
+        applySponsorBlockSegments(streamInfo, url);
         return streamInfo;
     }
 
@@ -198,6 +201,29 @@ public class YtdlpHelper {
                     .build());
         }
         return out;
+    }
+
+    /**
+     * Fetch + attach SponsorBlock segments for playback skipping. The extractor normally does this
+     * inside {@link StreamInfo#getInfo}, which our yt-dlp path bypasses — so without this, skipping
+     * silently does nothing whenever the yt-dlp flag is on. Segment times are absolute video ms,
+     * matching the player clock (the local bridge preserves true media-time positions).
+     */
+    private static void applySponsorBlockSegments(final StreamInfo streamInfo, final String url) {
+        try {
+            final SponsorBlockApiSettings settings =
+                    ServiceList.YouTube.getSponsorBlockApiSettings();
+            if (settings == null) {
+                return;
+            }
+            streamInfo.setSponsorBlockSegments(SponsorBlockExtractorHelper.getSegments(
+                    ServiceList.YouTube,
+                    ServiceList.YouTube.getStreamLHFactory().getId(url),
+                    settings));
+        } catch (final Exception e) {
+            // Non-fatal: playback works without skipping. Don't fail resolution over SponsorBlock.
+            android.util.Log.w("YtdlpHelper", "SponsorBlock segment fetch failed", e);
+        }
     }
 
     /** #17 Cycle A: map ytdlp-kt MediaInfo metadata onto the NewPipe StreamInfo. */
