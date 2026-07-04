@@ -30,6 +30,16 @@ public final class SponsorBlockDownloader {
     private SponsorBlockDownloader() { }
 
     public static void start(final Context context, final String url, final String title) {
+        start(context, url, title, null);
+    }
+
+    /**
+     * @param formatSelector yt-dlp {@code -f} selector (e.g. "bestaudio" for an audio-only file
+     *                       when the download dialog's audio tab is selected); null = yt-dlp's
+     *                       default (best video+audio).
+     */
+    public static void start(final Context context, final String url, final String title,
+                             final String formatSelector) {
         final Context app = context.getApplicationContext();
         ensureChannel(app);
         final NotificationManager nm =
@@ -43,7 +53,7 @@ public final class SponsorBlockDownloader {
         new Thread(() -> {
             int code = -1;
             try {
-                code = YtdlpKt.downloadBlocking(url, outputTemplate, null, "sponsor",
+                code = YtdlpKt.downloadBlocking(url, outputTemplate, formatSelector, "sponsor",
                         (percent, eta, line) -> notify(app, nm, name,
                                 app.getString(R.string.sponsorblock_download_started),
                                 (int) percent, true));

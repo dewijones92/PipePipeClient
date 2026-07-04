@@ -781,7 +781,14 @@ public class DownloadDialog extends DialogFragment
         // and let yt-dlp + the bundled ffmpeg cut sponsor segments during download.
         if (dialogBinding.sponsorblockRemoveCheckbox.getVisibility() == View.VISIBLE
                 && dialogBinding.sponsorblockRemoveCheckbox.isChecked()) {
-            SponsorBlockDownloader.start(requireContext(), currentInfo.getUrl(), currentInfo.getName());
+            // Honour the audio/video choice: audio tab -> bestaudio (audio-only file); otherwise
+            // yt-dlp's default (best video+audio). Previously the selection was ignored and the
+            // sponsor-strip path always downloaded the full video.
+            final String formatSelector =
+                    dialogBinding.videoAudioGroup.getCheckedRadioButtonId() == R.id.audio_button
+                            ? "bestaudio" : null;
+            SponsorBlockDownloader.start(requireContext(), currentInfo.getUrl(),
+                    currentInfo.getName(), formatSelector);
             Toast.makeText(requireContext(), R.string.sponsorblock_download_started,
                     Toast.LENGTH_SHORT).show();
             dismiss();
