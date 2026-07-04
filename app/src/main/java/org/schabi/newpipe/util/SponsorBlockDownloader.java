@@ -44,27 +44,60 @@ public final class SponsorBlockDownloader {
         ensureChannel(app);
         final NotificationManager nm =
                 (NotificationManager) app.getSystemService(Context.NOTIFICATION_SERVICE);
-        final File dir = app.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS);
-        final String outputTemplate = new File(dir, "%(title)s.%(ext)s").getAbsolutePath();
+        // yt-dlp writes to a unique app-private temp dir (needs a real filesystem path); the
+        // finished file is then published to shared storage so other apps can open it.
+        final File tempDir = new File(app.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS),
+                "sb-" + java.util.UUID.randomUUID());
+        tempDir.mkdirs();
+        final String outputTemplate = new File(tempDir, "%(title)s.%(ext)s").getAbsolutePath();
         final String name = title == null ? "video" : title;
 
         notify(app, nm, name, app.getString(R.string.sponsorblock_download_started), 0, true);
 
         new Thread(() -> {
             int code = -1;
+            boolean published = false;
             try {
                 code = YtdlpKt.downloadBlocking(url, outputTemplate, formatSelector, "sponsor",
                         (percent, eta, line) -> notify(app, nm, name,
                                 app.getString(R.string.sponsorblock_download_started),
                                 (int) percent, true));
+                if (code == 0) {
+                    published = publishResult(app, tempDir);
+                }
             } catch (final Throwable t) {
                 Log.e(TAG, "SponsorBlock download failed", t);
+            } finally {
+                deleteRecursive(tempDir);
             }
-            final boolean ok = code == 0;
+            final boolean ok = code == 0 && published;
             notify(app, nm, name, app.getString(ok
                     ? R.string.sponsorblock_download_done
                     : R.string.sponsorblock_download_failed), ok ? 100 : 0, false);
         }, "sponsorblock-download").start();
+    }
+
+    /** Publish the single file yt-dlp produced in {@code tempDir} to shared storage. */
+    private static boolean publishResult(final Context app, final File tempDir) {
+        final File[] produced = tempDir.listFiles((d, n) ->
+                !n.endsWith(".part") && !n.endsWith(".ytdl"));
+        if (produced == null || produced.length == 0) {
+            Log.e(TAG, "no output file to publish in " + tempDir);
+            return false;
+        }
+        final File out = produced[0];
+        return MediaStorePublisher.publish(app, out, out.getName(),
+                MediaStorePublisher.mimeFromName(out.getName())) != null;
+    }
+
+    private static void deleteRecursive(final File f) {
+        final File[] children = f.listFiles();
+        if (children != null) {
+            for (final File c : children) {
+                deleteRecursive(c);
+            }
+        }
+        f.delete();
     }
 
     private static void notify(final Context ctx, final NotificationManager nm, final String title,
