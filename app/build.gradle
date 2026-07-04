@@ -1,3 +1,6 @@
+import org.gradle.api.provider.ValueSource
+import org.gradle.api.provider.ValueSourceParameters
+
 plugins {
     id "com.android.application"
     id "org.jetbrains.kotlin.android"
@@ -10,6 +13,14 @@ def keyPath = System.getenv("KEY_PATH")
 def keyStorePassword = System.getenv("KEY_STORE_PASSWORD")
 def signingKeyAlias = System.getenv("KEY_ALIAS")
 def signingKeyPassword = System.getenv("KEY_PASSWORD")
+
+// Resolved once here (before the android {} block that consumes it). Backed by a ValueSource
+// (defined at the bottom of this file) so it stays correct under the configuration cache.
+def gitCommitCount = providers.of(GitCommitCountValueSource) {
+    parameters {
+        it.gitRefLog.set(layout.projectDirectory.file("../.git/logs/HEAD"))
+    }
+}.get()
 
 android {
     compileSdk 37
@@ -24,8 +35,10 @@ android {
         // and Obtainium compares versions to detect them. Base = upstream PipePipe's versionCode
         // (1101 = 5.2.1-beta4); when an upstream merge bumps theirs, update the base and the
         // versionName prefix here (resolve the conflict favouring this scheme).
-        versionCode 1101 * 10000 + getGitCommitCount()
-        versionName "5.2.1-beta4-dewi." + getGitCommitCount()
+        // gitCommitCount is a ValueSource (see below) so it stays correct under Gradle's
+        // configuration cache — a plain function froze the count at cache-populate time.
+        versionCode 1101 * 10000 + gitCommitCount
+        versionName "5.2.1-beta4-dewi." + gitCommitCount
         multiDexEnabled true
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
@@ -60,18 +73,8 @@ android {
     buildTypes {
         debug {
             debuggable true
-
-            // suffix the app id and the app name with git branch name
-            def workingBranch = getGitWorkingBranch()
-            def normalizedWorkingBranch = workingBranch.replaceFirst("^[^A-Za-z]+", "").replaceAll("[^0-9A-Za-z]+", "")
-            if (true) {
-                // default values when branch name could not be determined or is master or dev
-                applicationIdSuffix ".debug"
-                resValue "string", "app_name", "DewiPipe"
-            } else {
-                applicationIdSuffix ".debug." + normalizedWorkingBranch
-                resValue "string", "app_name", "DewiPipe " + workingBranch
-            }
+            applicationIdSuffix ".debug"
+            resValue "string", "app_name", "DewiPipe"
         }
 
         release {
@@ -303,32 +306,35 @@ dependencies {
     implementation 'com.arthenica:smart-exception-java:0.2.1'
 }
 
-static int getGitCommitCount() {
-    try {
-        def gitProcess = "git rev-list --count HEAD".execute()
-        gitProcess.waitFor()
-        if (gitProcess.exitValue() == 0) {
-            return gitProcess.text.trim().toInteger()
-        }
-        return 0
-    } catch (IOException | NumberFormatException ignored) {
-        // no git (e.g. source tarball build): fall back to the bare base version
-        return 0
+// Git commit count as a ValueSource so it is correct under the configuration cache. A plain
+// function runs at configuration time and its result is frozen into the config cache, so the
+// version stopped tracking new commits (and could even go backwards) until the cache was
+// invalidated. Declaring .git/logs/HEAD (the reflog, which changes on every commit/reset/
+// checkout) as a file input makes Gradle re-evaluate obtain() whenever HEAD could have moved.
+abstract class GitCommitCountValueSource
+        implements ValueSource<Integer, GitCommitCountValueSource.Params> {
+    interface Params extends ValueSourceParameters {
+        org.gradle.api.file.RegularFileProperty getGitRefLog()
     }
-}
 
-static String getGitWorkingBranch() {
-    try {
-        def gitProcess = "git rev-parse --abbrev-ref HEAD".execute()
-        gitProcess.waitFor()
-        if (gitProcess.exitValue() == 0) {
-            return gitProcess.text.trim()
-        } else {
-            // not a git repository
-            return ""
+    @javax.inject.Inject
+    abstract org.gradle.process.ExecOperations getExecOperations()
+
+    @Override
+    Integer obtain() {
+        try {
+            def out = new ByteArrayOutputStream()
+            getExecOperations().exec {
+                it.commandLine 'git', 'rev-list', '--count', 'HEAD'
+                it.standardOutput = out
+                it.errorOutput = new ByteArrayOutputStream()
+                it.ignoreExitValue = true
+            }
+            def text = out.toString().trim()
+            return text.isEmpty() ? 0 : text.toInteger()
+        } catch (Exception ignored) {
+            // no git (e.g. source tarball build): fall back to the bare base version
+            return 0
         }
-    } catch (IOException ignored) {
-        // git was not found
-        return ""
     }
 }
