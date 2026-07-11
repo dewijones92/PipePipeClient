@@ -45,7 +45,9 @@ import java.util.concurrent.atomic.AtomicReference;
 public class BridgePerfTest {
 
     private static final String TAG = "BridgePerf";
-    private static final String VIDEO_URL = "https://www.youtube.com/watch?v=nfe9q8ZA4Ag";
+    /** Overridable per run: -e videoUrl <url> picks the video to measure. */
+    private static final String VIDEO_URL = InstrumentationRegistry.getArguments()
+            .getString("videoUrl", "https://www.youtube.com/watch?v=nfe9q8ZA4Ag");
 
     private final AtomicReference<PlaybackException> errorRef = new AtomicReference<>();
     private final AtomicReference<ExoPlayer> playerRef = new AtomicReference<>();
