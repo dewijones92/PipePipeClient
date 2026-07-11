@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -162,6 +163,26 @@ public class FinishedMissionStore extends SQLiteOpenHelper {
         return mission;
     }
 
+
+    /**
+     * Name of a finished download of {@code source} whose file still exists, or null. Convenience
+     * for duplicate-download checks outside the download service; call off the main thread.
+     */
+    @Nullable
+    public static String findExistingDownloadName(final Context context, final String source) {
+        final FinishedMissionStore store =
+                new FinishedMissionStore(context.getApplicationContext());
+        try {
+            for (final FinishedMission mission : store.loadFinishedMissions()) {
+                if (source.equals(mission.source) && mission.storage.existsAsFile()) {
+                    return mission.storage.getName();
+                }
+            }
+        } finally {
+            store.close();
+        }
+        return null;
+    }
 
     //////////////////////////////////
     // Data source methods

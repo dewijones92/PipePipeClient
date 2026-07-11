@@ -89,6 +89,7 @@ import java.util.stream.Collectors;
 import io.reactivex.rxjava3.disposables.CompositeDisposable;
 import us.shandian.giga.get.HlsDownloadStreamHelper;
 import us.shandian.giga.get.MissionRecoveryInfo;
+import us.shandian.giga.get.sqlite.FinishedMissionStore;
 import us.shandian.giga.postprocessing.Postprocessing;
 import us.shandian.giga.service.DownloadManager;
 import us.shandian.giga.service.DownloadManagerService;
@@ -777,6 +778,37 @@ public class DownloadDialog extends DialogFragment
     }
 
     private void prepareSelectedDownload() {
+        // Warn before downloading a video that already has a finished download on disk (covers
+        // both the giga and the SponsorBlock paths — missions store the video page URL as source).
+        final Context appContext = requireContext().getApplicationContext();
+        final String sourceUrl = currentInfo.getUrl();
+        new Thread(() -> {
+            final String existing =
+                    FinishedMissionStore.findExistingDownloadName(appContext, sourceUrl);
+            final Activity activity = getActivity();
+            if (activity == null) {
+                return;
+            }
+            activity.runOnUiThread(() -> {
+                if (!isAdded()) {
+                    return;
+                }
+                if (existing == null) {
+                    continueSelectedDownload();
+                } else {
+                    new AlertDialog.Builder(context)
+                            .setTitle(R.string.download)
+                            .setMessage(getString(R.string.download_duplicate_warning, existing))
+                            .setPositiveButton(R.string.download,
+                                    (d, w) -> continueSelectedDownload())
+                            .setNegativeButton(R.string.cancel, null)
+                            .show();
+                }
+            });
+        }, "duplicate-download-check").start();
+    }
+
+    private void continueSelectedDownload() {
         // SponsorBlock-on-download via our yt-dlp stack (YouTube only): bypass the giga downloader
         // and let yt-dlp + the bundled ffmpeg cut sponsor segments during download.
         if (dialogBinding.sponsorblockRemoveCheckbox.getVisibility() == View.VISIBLE

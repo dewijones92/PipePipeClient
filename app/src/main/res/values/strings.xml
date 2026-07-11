@@ -308,6 +308,7 @@
 <string name="sponsorblock_download_started">Downloading with SponsorBlock removal…</string>
 <string name="sponsorblock_download_done">Download complete (sponsors removed)</string>
 <string name="sponsorblock_download_failed">SponsorBlock download failed</string>
+<string name="download_duplicate_warning">This video is already downloaded as \"%1$s\". Download again?</string>
 <string name="msg_error">Error</string>
 <string name="msg_running_new">DewiPipe Downloading</string>
 <string name="msg_running_detail">Tap for details</string>
