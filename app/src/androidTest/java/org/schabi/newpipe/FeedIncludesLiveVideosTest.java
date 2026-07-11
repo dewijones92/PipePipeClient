@@ -9,6 +9,7 @@ import android.util.Log;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 
+import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.schabi.newpipe.database.feed.model.FeedGroupEntity;
@@ -36,6 +37,19 @@ public class FeedIncludesLiveVideosTest {
     /** Lofi Girl — runs 24/7 live streams, so a live item should always exist. */
     private static final String CHANNEL_URL =
             "https://www.youtube.com/channel/UCSJ4gkVC6NrvII8umztf0Ow";
+
+    /**
+     * Tests run against the app's REAL database — on a personal device a leftover subscription
+     * pollutes the user's actual What's New feed (this happened: Lofi Girl at the top of the
+     * feed on a real phone). Always remove what the test subscribed to.
+     */
+    @After
+    public void unsubscribe() {
+        final Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        new SubscriptionManager(ctx)
+                .deleteSubscription(ServiceList.YouTube.getServiceId(), CHANNEL_URL)
+                .blockingAwait();
+    }
 
     @Test
     public void feedContainsCurrentlyLiveStreamAfterLoad() {

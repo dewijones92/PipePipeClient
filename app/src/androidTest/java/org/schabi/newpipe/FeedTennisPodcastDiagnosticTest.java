@@ -9,6 +9,7 @@ import android.util.Log;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 
+import org.junit.After;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.schabi.newpipe.database.feed.model.FeedGroupEntity;
@@ -44,6 +45,15 @@ public class FeedTennisPodcastDiagnosticTest {
     private static final String TAG = "FeedTennisDiag";
     private static final String CHANNEL_URL =
             "https://www.youtube.com/channel/UC9ZPFOiLoEeOBJseKICaFFQ";
+
+    /** Tests hit the app's REAL database; never leave a subscription behind on a real device. */
+    @After
+    public void unsubscribe() {
+        final Context ctx = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        new SubscriptionManager(ctx)
+                .deleteSubscription(ServiceList.YouTube.getServiceId(), CHANNEL_URL)
+                .blockingAwait();
+    }
 
     @Test
     public void scheduledLivestreamsReachTheFeed() throws Exception {
