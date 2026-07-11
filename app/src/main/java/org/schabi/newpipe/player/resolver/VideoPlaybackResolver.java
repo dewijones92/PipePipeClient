@@ -20,6 +20,7 @@ import org.schabi.newpipe.extractor.stream.SubtitlesStream;
 import org.schabi.newpipe.extractor.stream.VideoStream;
 import org.schabi.newpipe.player.datasource.SabrSessionStore;
 import org.schabi.newpipe.player.helper.PlayerDataSource;
+import org.schabi.newpipe.player.mediasource.FastStartMediaSource;
 import org.schabi.newpipe.player.helper.PlayerHelper;
 import org.schabi.newpipe.player.mediaitem.MediaItemTag;
 import org.schabi.newpipe.player.mediaitem.StreamInfoTag;
@@ -59,12 +60,24 @@ public class VideoPlaybackResolver implements PlaybackResolver {
         VIDEO_WITH_AUDIO_OR_AUDIO_ONLY
     }
 
+    /** Invoked on the main thread when a fast-start bridge warm-up is ready to be adopted. */
+    @Nullable
+    private final Runnable fastStartUpgradeListener;
+
     public VideoPlaybackResolver(@NonNull final Context context,
                                  @NonNull final PlayerDataSource dataSource,
                                  @NonNull final QualityResolver qualityResolver) {
+        this(context, dataSource, qualityResolver, null);
+    }
+
+    public VideoPlaybackResolver(@NonNull final Context context,
+                                 @NonNull final PlayerDataSource dataSource,
+                                 @NonNull final QualityResolver qualityResolver,
+                                 @Nullable final Runnable fastStartUpgradeListener) {
         this.context = context;
         this.dataSource = dataSource;
         this.qualityResolver = qualityResolver;
+        this.fastStartUpgradeListener = fastStartUpgradeListener;
     }
 
     @Override
@@ -165,11 +178,44 @@ public class VideoPlaybackResolver implements PlaybackResolver {
         final boolean bridgedDelivery = video != null && video.getDeliveryMethod()
                 == org.schabi.newpipe.extractor.stream.DeliveryMethod.YTDLP;
         if (bridgedDelivery) {
-            mediaSources.add(YtdlpBridge.buildBridgedSource(context, video, audio, tag,
-                    bridgeStartPositionMs));
-            streamSourceType = audio != null
-                    ? SourceType.VIDEO_WITH_SEPARATED_AUDIO
-                    : SourceType.VIDEO_WITH_AUDIO_OR_AUDIO_ONLY;
+            // Fast start: a cold bridge needs a multi-second ffmpeg warm-up before anything
+            // renders, while a progressive muxed stream reaches READY in under a second. On a
+            // cold from-zero start, play the progressive stream NOW, warm the bridge behind it
+            // (kicked on first real play so preloaded queue neighbours don't spawn ffmpeg), and
+            // let the Player reload onto the warm bridge — the rebuild lands in the else-branch
+            // below and adopts the warm session.
+            // Pick from the RAW muxed list: the sorted quality list dedupes per resolution in
+            // favour of video-only variants, so the progressive stream is usually absent there.
+            final VideoStream fastStart = fastStartUpgradeListener == null ? null
+                    : pickFastStartStream(info.getVideoStreams(), video);
+            MediaSource fastStartSource = null;
+            if (fastStart != null
+                    && YtdlpBridge.wouldColdStart(video.getContent(), bridgeStartPositionMs)) {
+                try {
+                    final MediaItemTag fastTag =
+                            StreamInfoTag.of(info, videos, videos.indexOf(fastStart));
+                    final MediaSource progressive = PlaybackResolver.buildMediaSource(
+                            dataSource, fastStart, info,
+                            PlayerHelper.cacheKeyOf(info, fastStart), fastTag);
+                    final VideoStream bridgeVideo = video;
+                    final AudioStream bridgeAudio = audio;
+                    fastStartSource = new FastStartMediaSource(progressive, () ->
+                            YtdlpBridge.preWarmFastStart(context, bridgeVideo, bridgeAudio,
+                                    fastStartUpgradeListener));
+                } catch (final IOException e) {
+                    // Progressive stand-in failed to build; fall through to the plain bridge.
+                }
+            }
+            if (fastStartSource != null) {
+                mediaSources.add(fastStartSource);
+                streamSourceType = SourceType.VIDEO_WITH_AUDIO_OR_AUDIO_ONLY;
+            } else {
+                mediaSources.add(YtdlpBridge.buildBridgedSource(context, video, audio, tag,
+                        bridgeStartPositionMs));
+                streamSourceType = audio != null
+                        ? SourceType.VIDEO_WITH_SEPARATED_AUDIO
+                        : SourceType.VIDEO_WITH_AUDIO_OR_AUDIO_ONLY;
+            }
         }
 
         if (!bridgedDelivery && video != null) {
@@ -264,6 +310,41 @@ public class VideoPlaybackResolver implements PlaybackResolver {
             return mediaSources.get(0);
         } else {
             return new MergingMediaSource(true, mediaSources.toArray(new MediaSource[0]));
+        }
+    }
+
+    /**
+     * The progressive (muxed, directly playable) stand-in for a fast start: the highest-resolution
+     * muxed stream not above the bridge selection, or the best muxed one available. Null when the
+     * video has no plain progressive stream (then a fast start isn't possible).
+     */
+    @Nullable
+    private static VideoStream pickFastStartStream(@NonNull final List<VideoStream> videos,
+                                                   @NonNull final VideoStream selected) {
+        VideoStream bestUnderSelected = null;
+        VideoStream lowest = null;
+        for (final VideoStream s : videos) {
+            if (s.isVideoOnly()
+                    || s.getDeliveryMethod() != DeliveryMethod.PROGRESSIVE_HTTP
+                    || s.getContent().isEmpty()) {
+                continue;
+            }
+            if (lowest == null || heightOf(s) < heightOf(lowest)) {
+                lowest = s;
+            }
+            if (heightOf(s) <= heightOf(selected)
+                    && (bestUnderSelected == null || heightOf(s) > heightOf(bestUnderSelected))) {
+                bestUnderSelected = s;
+            }
+        }
+        return bestUnderSelected != null ? bestUnderSelected : lowest;
+    }
+
+    private static int heightOf(@NonNull final VideoStream stream) {
+        try {
+            return Integer.parseInt(stream.getResolution().replaceAll("[^0-9].*$", ""));
+        } catch (final NumberFormatException e) {
+            return 0;
         }
     }
 

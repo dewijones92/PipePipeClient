@@ -135,18 +135,31 @@ public final class YtdlpBridge {
             PENDING_JUMPS.put(url, startAtSec);
         }
         Log.i(TAG, "seamless jump pre-warm to " + targetMs + "ms (gen " + gen + ")");
+        // On timeout, reload anyway (null onTimeout): the session's own watchdog catches up.
+        watchWarm(url, gen, session, WARM_TIMEOUT_MS, onReadyMain, null);
+    }
 
+    /**
+     * Poll a warming session until it has a real segment, then post [onReadyMain] to the main
+     * thread. On deadline: run [onTimeout] if given, else post [onReadyMain] anyway. A superseded
+     * generation exits silently either way.
+     */
+    private static void watchWarm(final String url, final int gen,
+                                  final LocalHlsBridgeSession session, final long timeoutMs,
+                                  @NonNull final Runnable onReadyMain,
+                                  @Nullable final Runnable onTimeout) {
         final android.os.Handler main =
                 new android.os.Handler(android.os.Looper.getMainLooper());
         new Thread(() -> {
-            final long deadline = System.currentTimeMillis() + WARM_TIMEOUT_MS;
+            final long deadline = System.currentTimeMillis() + timeoutMs;
             while (System.currentTimeMillis() < deadline) {
                 if (superseded(url, gen)) {
                     return;
                 }
                 if (hasRealSegment(session)) {
-                    Log.i(TAG, "seamless jump warm ready (gen " + gen + ")");
-                    break;
+                    Log.i(TAG, "warm session ready (gen " + gen + ")");
+                    main.post(onReadyMain);
+                    return;
                 }
                 try {
                     Thread.sleep(300);
@@ -154,11 +167,124 @@ public final class YtdlpBridge {
                     return;
                 }
             }
-            if (!superseded(url, gen)) {
+            if (superseded(url, gen)) {
+                return;
+            }
+            if (onTimeout != null) {
+                onTimeout.run();
+            } else {
                 main.post(onReadyMain);
             }
         }, "ytdlp-bridge-warm").start();
     }
+
+    /**
+     * Fast start, step 1 (asked by the resolver): would the next source build for [videoUrl] be a
+     * COLD from-zero bridge — no pending far-seek jump, no warm session, no meaningful resume?
+     * That's the case where playing a progressive stream while the bridge warms is worth it.
+     */
+    public static boolean wouldColdStart(@NonNull final String videoUrl, final long resumeMs) {
+        if (resumeMs >= RESUME_MIN_MS) {
+            return false;
+        }
+        synchronized (PENDING_JUMPS) {
+            if (PENDING_JUMPS.containsKey(videoUrl)) {
+                return false;
+            }
+        }
+        synchronized (WARM) {
+            return !WARM.containsKey(videoUrl);
+        }
+    }
+
+    /**
+     * Fast start, step 2 (kicked on the progressive stand-in's first real play): warm a
+     * from-zero bridge session for [video] while the progressive stream is on screen. When it has
+     * a real segment, [onReadyMain] runs on the main thread and the Player reloads onto the
+     * bridge (the source build adopts this session). If the warm-up times out, or the callback
+     * is never followed by an adoption (e.g. the user skipped to another video), the session is
+     * stopped and dropped — playback simply stays progressive.
+     */
+    public static void preWarmFastStart(@NonNull final Context context,
+                                        @NonNull final VideoStream video,
+                                        @Nullable final AudioStream audio,
+                                        @NonNull final Runnable onReadyMain) {
+        final String url = video.getContent();
+        final int gen;
+        final LocalHlsBridgeSession session;
+        synchronized (WARM) {
+            if (WARM.containsKey(url)) {
+                return; // already warming (or awaiting adoption)
+            }
+            gen = ++warmGeneration;
+            session = createSession(context, video, audio, 0);
+            session.start();
+            WARM.put(url, new WarmJump(0, session, gen));
+        }
+        Log.i(TAG, "fast-start pre-warm of " + video.getResolution() + " (gen " + gen + ")");
+        watchWarm(url, gen, session, FAST_START_WARM_TIMEOUT_MS,
+                () -> {
+                    onReadyMain.run();
+                    scheduleAdoptionCheck(url, gen, session);
+                },
+                () -> dropWarm(url, gen, session, "fast-start warm timed out"));
+    }
+
+    /** Stop + forget an unadopted warm session shortly after its ready callback, so a skipped
+     *  video's ffmpeg doesn't keep downloading in the background. */
+    private static void scheduleAdoptionCheck(final String url, final int gen,
+                                              final LocalHlsBridgeSession session) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() ->
+                dropWarm(url, gen, session, "fast-start session never adopted"),
+                ADOPTION_DEADLINE_MS);
+    }
+
+    private static void dropWarm(final String url, final int gen,
+                                 final LocalHlsBridgeSession session, final String why) {
+        synchronized (WARM) {
+            final WarmJump cur = WARM.get(url);
+            if (cur == null || cur.generation != gen) {
+                return; // adopted (removed) or superseded — nothing to clean
+            }
+            WARM.remove(url);
+        }
+        session.stop();
+        Log.w(TAG, why + "; dropped warm session (gen " + gen + ")");
+    }
+
+    /**
+     * Fast start, step 3 (checked by the Player when the ready callback fires): does the current
+     * item's [tag] carry a YTDLP stream whose warm from-zero session is ready to adopt? Guards
+     * the upgrade reload against the user having moved on to a different video meanwhile.
+     */
+    public static boolean canUpgradeToBridge(@Nullable final MediaItemTag tag) {
+        if (tag == null) {
+            return false;
+        }
+        final java.util.List<VideoStream> sorted = tag.getMaybeQuality()
+                .map(MediaItemTag.Quality::getSortedVideoStreams).orElse(null);
+        if (sorted == null) {
+            return false;
+        }
+        synchronized (WARM) {
+            for (final VideoStream s : sorted) {
+                if (s.getDeliveryMethod()
+                        != org.schabi.newpipe.extractor.stream.DeliveryMethod.YTDLP) {
+                    continue;
+                }
+                final WarmJump warm = WARM.get(s.getContent());
+                if (warm != null && warm.startAtSec == 0 && hasRealSegment(warm.session)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Fast-start warm-up budget; on expiry the user just keeps the progressive stream. */
+    private static final long FAST_START_WARM_TIMEOUT_MS = 45_000;
+    /** How long a ready warm session may sit unadopted before it is stopped. */
+    private static final long ADOPTION_DEADLINE_MS = 30_000;
 
     private static boolean superseded(final String url, final int gen) {
         synchronized (WARM) {

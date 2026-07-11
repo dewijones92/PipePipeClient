@@ -469,7 +469,8 @@ public final class Player implements
         }
         renderFactory.setEnableDecoderFallback(true);
 
-        videoResolver = new VideoPlaybackResolver(context, dataSource, getQualityResolver());
+        videoResolver = new VideoPlaybackResolver(context, dataSource, getQualityResolver(),
+                this::onFastStartBridgeReady);
         audioResolver = new AudioPlaybackResolver(context, dataSource);
 
         windowManager = ContextCompat.getSystemService(context, WindowManager.class);
@@ -3497,6 +3498,23 @@ case ERROR_CODE_DECODER_INIT_FAILED: {
             }
             return false;
         }).orElse(false);
+    }
+
+    /**
+     * Fast-start upgrade: the from-zero bridge session warmed behind the progressive stand-in
+     * has real segments. Reload so the resolver rebuilds — its bridge path adopts the warm
+     * session — resuming at the current position. No-op if the user moved on to another video
+     * (the orphaned warm session is stopped by the bridge's adoption deadline).
+     */
+    private void onFastStartBridgeReady() {
+        if (exoPlayerIsNull() || playQueue == null
+                || !YtdlpBridge.canUpgradeToBridge(currentMetadata)) {
+            return;
+        }
+        final long positionMs = simpleExoPlayer.getCurrentPosition();
+        Log.i(TAG, "fast-start: upgrading to the bridged stream at " + positionMs + "ms");
+        setRecovery(playQueue.getIndex(), positionMs);
+        reloadPlayQueueManager();
     }
 
     public void seekTo(final long positionMillis) {
