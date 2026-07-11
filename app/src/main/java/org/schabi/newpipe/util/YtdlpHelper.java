@@ -43,10 +43,18 @@ public class YtdlpHelper {
 
     public static StreamInfo getFallbackStreams(final String url) throws IOException, ExtractionException {
         try {
+            // SponsorBlock is an independent API round-trip; fetch it concurrently with the
+            // (multi-second) yt-dlp resolve instead of serially after it.
+            final java.util.concurrent.FutureTask<
+                    org.schabi.newpipe.extractor.sponsorblock.SponsorBlockSegment[]> sbFetch =
+                    new java.util.concurrent.FutureTask<>(() -> fetchSponsorBlockSegments(url));
+            new Thread(sbFetch, "sb-prefetch").start();
             // YtdlpKt.resolve is a suspend fun; resolveBlocking is the synchronous entry point. This
             // runs inside Single.fromCallable (a background scheduler), so blocking here is fine.
             final MediaInfo info = YtdlpKt.resolveBlocking(url);
-            return parseInfo(info, url);
+            final StreamInfo streamInfo = parseInfo(info, url);
+            applySponsorBlockResult(streamInfo, sbFetch);
+            return streamInfo;
         } catch (final Exception e) {
             final String msg = e.getMessage();
             if (msg == null) {
@@ -170,7 +178,6 @@ public class YtdlpHelper {
         streamInfo.setVideoStreams(videoStreams);
         streamInfo.setVideoOnlyStreams(videoOnlyStreams);
         streamInfo.setSubtitles(buildSubtitles(info));
-        applySponsorBlockSegments(streamInfo, url);
         return streamInfo;
     }
 
@@ -204,23 +211,40 @@ public class YtdlpHelper {
     }
 
     /**
-     * Fetch + attach SponsorBlock segments for playback skipping. The extractor normally does this
-     * inside {@link StreamInfo#getInfo}, which our yt-dlp path bypasses — so without this, skipping
+     * Fetch SponsorBlock segments for playback skipping. The extractor normally does this inside
+     * {@link StreamInfo#getInfo}, which our yt-dlp path bypasses — so without this, skipping
      * silently does nothing whenever the yt-dlp flag is on. Segment times are absolute video ms,
      * matching the player clock (the local bridge preserves true media-time positions).
+     * Runs concurrently with the yt-dlp resolve (see {@link #getFallbackStreams}).
      */
-    private static void applySponsorBlockSegments(final StreamInfo streamInfo, final String url) {
+    private static org.schabi.newpipe.extractor.sponsorblock.SponsorBlockSegment[]
+            fetchSponsorBlockSegments(final String url) throws Exception {
+        final SponsorBlockApiSettings settings =
+                ServiceList.YouTube.getSponsorBlockApiSettings();
+        if (settings == null) {
+            return null;
+        }
+        return SponsorBlockExtractorHelper.getSegments(
+                ServiceList.YouTube,
+                ServiceList.YouTube.getStreamLHFactory().getId(url),
+                settings);
+    }
+
+    /** Attach the concurrently fetched segments; SponsorBlock failures never fail resolution. */
+    private static void applySponsorBlockResult(
+            final StreamInfo streamInfo,
+            final java.util.concurrent.Future<
+                    org.schabi.newpipe.extractor.sponsorblock.SponsorBlockSegment[]> sbFetch) {
         try {
-            final SponsorBlockApiSettings settings =
-                    ServiceList.YouTube.getSponsorBlockApiSettings();
-            if (settings == null) {
-                return;
+            // The resolve took multi-seconds, so this is normally already done; the bound is a
+            // safety net against a hung SponsorBlock API adding latency back.
+            final org.schabi.newpipe.extractor.sponsorblock.SponsorBlockSegment[] segments =
+                    sbFetch.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            if (segments != null) {
+                streamInfo.setSponsorBlockSegments(segments);
             }
-            streamInfo.setSponsorBlockSegments(SponsorBlockExtractorHelper.getSegments(
-                    ServiceList.YouTube,
-                    ServiceList.YouTube.getStreamLHFactory().getId(url),
-                    settings));
         } catch (final Exception e) {
+            sbFetch.cancel(true);
             // Non-fatal: playback works without skipping. Don't fail resolution over SponsorBlock.
             android.util.Log.w("YtdlpHelper", "SponsorBlock segment fetch failed", e);
         }

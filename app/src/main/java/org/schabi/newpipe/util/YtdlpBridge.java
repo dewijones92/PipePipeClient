@@ -292,6 +292,9 @@ public final class YtdlpBridge {
                                                        final int startAtSec) {
         final File outputDir = new File(new File(context.getCacheDir(), CACHE_SUBDIR),
                 UUID.randomUUID().toString());
+        // Segment duration stays 4s: A/B-measured 2s segments made no reliable difference to
+        // cold-load-to-READY (runs were noise-dominated; ffmpeg can only cut on keyframes, and
+        // YouTube's keyframe cadence is coarser than 2s), so keep the fewer-files setting.
         final LocalHlsBridgeSession session = YtdlpKt.newLocalHlsBridge(
                 stripPppId(video.getContent()),
                 audio == null ? null : stripPppId(audio.getContent()),
