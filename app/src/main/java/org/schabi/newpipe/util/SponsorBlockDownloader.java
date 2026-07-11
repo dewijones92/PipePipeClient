@@ -2,9 +2,14 @@ package org.schabi.newpipe.util;
 
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
+import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
+import android.content.ServiceConnection;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
+import android.os.IBinder;
 import android.util.Log;
 
 import androidx.core.app.NotificationCompat;
@@ -12,8 +17,12 @@ import androidx.core.app.NotificationCompat;
 import com.dewijones92.ytdlpkt.YtdlpKt;
 
 import org.schabi.newpipe.R;
+import org.schabi.newpipe.streams.io.StoredFileHelper;
 
 import java.io.File;
+
+import us.shandian.giga.get.FinishedMission;
+import us.shandian.giga.service.DownloadManagerService;
 
 /**
  * Downloads a YouTube video via our yt-dlp API-23 stack with SponsorBlock segments removed
@@ -63,7 +72,7 @@ public final class SponsorBlockDownloader {
                                 app.getString(R.string.sponsorblock_download_started),
                                 (int) percent, true));
                 if (code == 0) {
-                    published = publishResult(app, tempDir);
+                    published = publishResult(app, url, tempDir);
                 }
             } catch (final Throwable t) {
                 Log.e(TAG, "SponsorBlock download failed", t);
@@ -77,8 +86,12 @@ public final class SponsorBlockDownloader {
         }, "sponsorblock-download").start();
     }
 
-    /** Publish the single file yt-dlp produced in {@code tempDir} to shared storage. */
-    private static boolean publishResult(final Context app, final File tempDir) {
+    /**
+     * Publish the single file yt-dlp produced in {@code tempDir} to shared storage, and list it
+     * in the app's Downloads page.
+     */
+    private static boolean publishResult(final Context app, final String url,
+                                         final File tempDir) {
         final File[] produced = tempDir.listFiles((d, n) ->
                 !n.endsWith(".part") && !n.endsWith(".ytdl"));
         if (produced == null || produced.length == 0) {
@@ -86,8 +99,55 @@ public final class SponsorBlockDownloader {
             return false;
         }
         final File out = produced[0];
-        return MediaStorePublisher.publish(app, out, out.getName(),
-                MediaStorePublisher.mimeFromName(out.getName())) != null;
+        final String mime = MediaStorePublisher.mimeFromName(out.getName());
+        final MediaStorePublisher.Published published =
+                MediaStorePublisher.publish(app, out, out.getName(), mime);
+        if (published == null) {
+            return false;
+        }
+        registerInDownloadsPage(app, url, published, mime);
+        return true;
+    }
+
+    /**
+     * Register the published file as a finished giga mission so it shows in the Downloads page.
+     * Best-effort: the download itself already succeeded if this fails.
+     */
+    private static void registerInDownloadsPage(final Context app, final String url,
+                                                final MediaStorePublisher.Published published,
+                                                final String mime) {
+        if (published.file == null) {
+            Log.w(TAG, "no file path for " + published.uri + "; not listing in Downloads page");
+            return;
+        }
+        try {
+            final FinishedMission mission = new FinishedMission();
+            mission.source = url;
+            mission.length = published.file.length();
+            mission.timestamp = System.currentTimeMillis();
+            mission.kind = mime.startsWith("audio/") ? 'a' : 'v';
+            mission.storage = new StoredFileHelper(app, null, Uri.fromFile(published.file), "");
+            // Go through the service's DownloadManager (not the SQLite store directly) so the
+            // in-memory finished list a running service holds stays in sync with the database.
+            final ServiceConnection conn = new ServiceConnection() {
+                @Override
+                public void onServiceConnected(final ComponentName name, final IBinder binder) {
+                    ((DownloadManagerService.DownloadManagerBinder) binder)
+                            .getDownloadManager().addFinishedMission(mission);
+                    app.unbindService(this);
+                }
+
+                @Override
+                public void onServiceDisconnected(final ComponentName name) {
+                }
+            };
+            if (!app.bindService(new Intent(app, DownloadManagerService.class), conn,
+                    Context.BIND_AUTO_CREATE)) {
+                Log.e(TAG, "could not bind DownloadManagerService to register the download");
+            }
+        } catch (final Exception e) {
+            Log.e(TAG, "failed to register the download in the Downloads page", e);
+        }
     }
 
     private static void deleteRecursive(final File f) {

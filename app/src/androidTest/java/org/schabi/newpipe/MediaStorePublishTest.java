@@ -73,9 +73,10 @@ public class MediaStorePublishTest {
                 + UUID.randomUUID().toString().substring(0, 8) + ".m4a";
 
         // Publish (the step SponsorBlockDownloader now runs after a download).
-        final Uri published = MediaStorePublisher.publish(ctx, src, displayName, "audio/mp4");
+        final MediaStorePublisher.Published published =
+                MediaStorePublisher.publish(ctx, src, displayName, "audio/mp4");
         assertNotNull("publish returned null", published);
-        Log.i(TAG, "published as " + published);
+        Log.i(TAG, "published as " + published.uri + " at " + published.file);
 
         // "Other app" discovery: find it ONLY through a MediaStore query by display name.
         final Uri discovered = findAudioByDisplayName(resolver, displayName);

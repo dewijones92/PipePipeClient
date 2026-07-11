@@ -440,7 +440,19 @@ public class DownloadManager {
             if(mission.storage.srcName.endsWith(".tmp")){
                 return;
             }
-            mMissionsFinished.add(0, new FinishedMission(mission));
+            addFinishedMission(new FinishedMission(mission));
+        }
+    }
+
+    /**
+     * Register a download that finished outside the giga downloader (e.g. a SponsorBlock yt-dlp
+     * download) so it appears in the downloads list.
+     *
+     * @param mission a finished mission whose storage points at the existing file
+     */
+    public void addFinishedMission(FinishedMission mission) {
+        synchronized (this) {
+            mMissionsFinished.add(0, mission);
             mFinishedMissionStore.addFinishedMission(mission);
         }
     }

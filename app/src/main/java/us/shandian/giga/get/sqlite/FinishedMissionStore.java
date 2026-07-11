@@ -14,7 +14,6 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Objects;
 
-import us.shandian.giga.get.DownloadMission;
 import us.shandian.giga.get.FinishedMission;
 import us.shandian.giga.get.Mission;
 import org.schabi.newpipe.streams.io.StoredFileHelper;
@@ -184,7 +183,7 @@ public class FinishedMissionStore extends SQLiteOpenHelper {
         return result;
     }
 
-    public void addFinishedMission(DownloadMission downloadMission) {
+    public void addFinishedMission(Mission downloadMission) {
         ContentValues values = getValuesOfMission(Objects.requireNonNull(downloadMission));
         SQLiteDatabase database = getWritableDatabase();
         database.insert(FINISHED_TABLE_NAME, null, values);
