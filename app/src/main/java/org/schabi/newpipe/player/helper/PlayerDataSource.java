@@ -106,7 +106,7 @@ public class PlayerDataSource {
         YoutubePostLiveStreamDvrDashManifestCreator.getCache().setMaximumSize(
                 MAXIMUM_SIZE_CACHED_GENERATED_MANIFESTS_PER_CACHE);
 
-        biliCachelessDataSourceFactory = new PurifiedDataSource.Factory(context,
+        biliCachelessDataSourceFactory = new RoutingDataSource.Factory(context,
                 new PurifiedHttpDataSource.Factory().setUserAgent(userAgent)
                         .setDefaultRequestProperties(Map.of("Referer", "https://www.bilibili.com")))
                 .setTransferListener(transferListener);
@@ -247,7 +247,7 @@ public class PlayerDataSource {
     }
 
     public MediaSource.Factory getNicoMediaSourceFactory(String cookie) {
-        cacheDataSourceFactoryBuilder.setUpstreamDataSourceFactory(new PurifiedDataSource.Factory(context,
+        cacheDataSourceFactoryBuilder.setUpstreamDataSourceFactory(new RoutingDataSource.Factory(context,
                 new PurifiedHttpDataSource.Factory()
                         .setDefaultRequestProperties(Map.of("Cookie", cookie)))
                 .setTransferListener(transferListener));
@@ -256,7 +256,7 @@ public class PlayerDataSource {
     }
 
     public HlsMediaSource.Factory getNicoLiveHlsMediaSourceFactory(String liveUrl) {
-        DataSource.Factory newFactory = new ResolvingDataSource.Factory(new NiconicoLiveDataSource
+        DataSource.Factory newFactory = new ResolvingDataSource.Factory(new RoutingDataSource
                 .Factory(context, new NiconicoLiveHttpDataSource.Factory(liveUrl)
                 .setDefaultRequestProperties(Map.of("Referer", "https://live.nicovideo.jp",
                         "Origin", "https://live.nicovideo.jp",

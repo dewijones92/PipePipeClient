@@ -170,35 +170,7 @@ public final class InternalUrlsHandler {
                                       @NonNull final StreamingService service,
                                       final int seconds,
                                       @NonNull final CompositeDisposable disposables) {
-        final LinkHandlerFactory factory = service.getStreamLHFactory();
-        final String cleanUrl;
-
-        try {
-            cleanUrl = factory.getUrl(factory.getId(url));
-        } catch (final ParsingException e) {
-            return false;
-        }
-
-        final Single<StreamInfo> single
-                = ExtractorHelper.getStreamInfo(service.getServiceId(), cleanUrl, false);
-        disposables.add(single.subscribeOn(Schedulers.io())
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe(info -> {
-                    final PlayQueue playQueue
-                            = new SinglePlayQueue(info, seconds * 1000L);
-                    NavigationHelper.playOnPopupPlayer(context, playQueue, false);
-                }, throwable -> {
-                    if (DEBUG) {
-                        Log.e(TAG, "Could not play on popup: " + url, throwable);
-                    }
-                    new AlertDialog.Builder(context)
-                            .setTitle(R.string.player_stream_failure)
-                            .setMessage(
-                                    ErrorPanelHelper.Companion.getExceptionDescription(throwable))
-                            .setPositiveButton(R.string.ok, (v, b) -> { })
-                            .show();
-                }));
-        return true;
+        return playOnPlayer(context, url, service, seconds, disposables, true);
     }
 
     public static boolean playOnMain(final Context context,
@@ -206,6 +178,15 @@ public final class InternalUrlsHandler {
                                       @NonNull final StreamingService service,
                                       final int seconds,
                                       @NonNull final CompositeDisposable disposables) {
+        return playOnPlayer(context, url, service, seconds, disposables, false);
+    }
+
+    private static boolean playOnPlayer(final Context context,
+                                        final String url,
+                                        @NonNull final StreamingService service,
+                                        final int seconds,
+                                        @NonNull final CompositeDisposable disposables,
+                                        final boolean popup) {
         final LinkHandlerFactory factory = service.getStreamLHFactory();
         final String cleanUrl;
 
@@ -222,10 +203,14 @@ public final class InternalUrlsHandler {
                 .subscribe(info -> {
                     final PlayQueue playQueue
                             = new SinglePlayQueue(info, seconds * 1000L);
-                    NavigationHelper.playOnMainPlayer(context, playQueue, false);
+                    if (popup) {
+                        NavigationHelper.playOnPopupPlayer(context, playQueue, false);
+                    } else {
+                        NavigationHelper.playOnMainPlayer(context, playQueue, false);
+                    }
                 }, throwable -> {
                     if (DEBUG) {
-                        Log.e(TAG, "Could not play on popup: " + url, throwable);
+                        Log.e(TAG, "Could not play: " + url, throwable);
                     }
                     new AlertDialog.Builder(context)
                             .setTitle(R.string.player_stream_failure)

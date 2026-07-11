@@ -58,15 +58,18 @@ import java.util.Map;
  *       explicit dependency on ExoPlayer's RTMP extension.
  *   <li>data: For parsing data inlined in the URI as defined in RFC 2397.
  *   <li>udp: For fetching data over UDP (e.g. udp://something.com/media).
- *   <li>http(s): For fetching data over HTTP and HTTPS (e.g. https://www.something.com/media.mp4),
- *       if constructed using {@link #NiconicoLiveDataSource(Context, String, boolean)}, or any other
- *       schemes supported by a base data source if constructed using {@link
- *       #NiconicoLiveDataSource(Context, DataSource)}.
+ *   <li>http(s) and anything else: delegated to the base {@link DataSource} supplied at
+ *       construction time (e.g. a {@link PurifiedHttpDataSource} or
+ *       {@link NiconicoLiveHttpDataSource}).
  * </ul>
+ *
+ * <p>This is the app's copy of media3's DefaultDataSource routing, shared by every player data
+ * path that needs a custom HTTP source (it replaced the near-identical PurifiedDataSource and
+ * NiconicoLiveDataSource copies).
  */
-public final class NiconicoLiveDataSource implements DataSource {
+public final class RoutingDataSource implements DataSource {
 
-    /** {@link DataSource.Factory} for {@link NiconicoLiveDataSource} instances. */
+    /** {@link DataSource.Factory} for {@link RoutingDataSource} instances. */
     public static final class Factory implements DataSource.Factory {
 
         private final Context context;
@@ -77,20 +80,11 @@ public final class NiconicoLiveDataSource implements DataSource {
          * Creates an instance.
          *
          * @param context A context.
-         */
-        public Factory(Context context) {
-            this(context, new NiconicoLiveHttpDataSource.Factory(""));
-        }
-
-        /**
-         * Creates an instance.
-         *
-         * @param context A context.
          * @param baseDataSourceFactory The {@link DataSource.Factory} to be used to create base {@link
-         *     DataSource DataSources} for {@link NiconicoLiveDataSource} instances. The base {@link
+         *     DataSource DataSources} for {@link RoutingDataSource} instances. The base {@link
          *     DataSource} is normally an {@link HttpDataSource}, and is responsible for fetching data
          *     over HTTP and HTTPS, as well as any other URI schemes not otherwise supported by {@link
-         *     NiconicoLiveDataSource}.
+         *     RoutingDataSource}.
          */
         public Factory(Context context, DataSource.Factory baseDataSourceFactory) {
             this.context = context.getApplicationContext();
@@ -113,9 +107,9 @@ public final class NiconicoLiveDataSource implements DataSource {
         }
 
         @Override
-        public NiconicoLiveDataSource createDataSource() {
-            NiconicoLiveDataSource dataSource =
-                    new NiconicoLiveDataSource(context, baseDataSourceFactory.createDataSource());
+        public RoutingDataSource createDataSource() {
+            RoutingDataSource dataSource =
+                    new RoutingDataSource(context, baseDataSourceFactory.createDataSource());
             if (transferListener != null) {
                 dataSource.addTransferListener(transferListener);
             }
@@ -123,7 +117,7 @@ public final class NiconicoLiveDataSource implements DataSource {
         }
     }
 
-    private static final String TAG = "NiconicoLiveDataSource";
+    private static final String TAG = "RoutingDataSource";
 
     private static final String SCHEME_ASSET = "asset";
     private static final String SCHEME_CONTENT = "content";
@@ -149,68 +143,6 @@ public final class NiconicoLiveDataSource implements DataSource {
     @Nullable private DataSource dataSource;
 
     /**
-     * Constructs a new instance, optionally configured to follow cross-protocol redirects.
-     *
-     * @param context A context.
-     */
-    public NiconicoLiveDataSource(Context context, boolean allowCrossProtocolRedirects) {
-        this(
-                context,
-                /* userAgent= */ null,
-                NiconicoLiveHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS,
-                NiconicoLiveHttpDataSource.DEFAULT_READ_TIMEOUT_MILLIS,
-                allowCrossProtocolRedirects);
-    }
-
-    /**
-     * Constructs a new instance, optionally configured to follow cross-protocol redirects.
-     *
-     * @param context A context.
-     * @param userAgent The user agent that will be used when requesting remote data, or {@code null}
-     *     to use the default user agent of the underlying platform.
-     * @param allowCrossProtocolRedirects Whether cross-protocol redirects (i.e. redirects from HTTP
-     *     to HTTPS and vice versa) are enabled when fetching remote data.
-     */
-    public NiconicoLiveDataSource(
-            Context context, @Nullable String userAgent, boolean allowCrossProtocolRedirects) {
-        this(
-                context,
-                userAgent,
-                NiconicoLiveHttpDataSource.DEFAULT_CONNECT_TIMEOUT_MILLIS,
-                NiconicoLiveHttpDataSource.DEFAULT_READ_TIMEOUT_MILLIS,
-                allowCrossProtocolRedirects);
-    }
-
-    /**
-     * Constructs a new instance, optionally configured to follow cross-protocol redirects.
-     *
-     * @param context A context.
-     * @param userAgent The user agent that will be used when requesting remote data, or {@code null}
-     *     to use the default user agent of the underlying platform.
-     * @param connectTimeoutMillis The connection timeout that should be used when requesting remote
-     *     data, in milliseconds. A timeout of zero is interpreted as an infinite timeout.
-     * @param readTimeoutMillis The read timeout that should be used when requesting remote data, in
-     *     milliseconds. A timeout of zero is interpreted as an infinite timeout.
-     * @param allowCrossProtocolRedirects Whether cross-protocol redirects (i.e. redirects from HTTP
-     *     to HTTPS and vice versa) are enabled when fetching remote data.
-     */
-    public NiconicoLiveDataSource(
-            Context context,
-            @Nullable String userAgent,
-            int connectTimeoutMillis,
-            int readTimeoutMillis,
-            boolean allowCrossProtocolRedirects) {
-        this(
-                context,
-                new NiconicoLiveHttpDataSource.Factory("")
-                        .setUserAgent(userAgent)
-                        .setConnectTimeoutMs(connectTimeoutMillis)
-                        .setReadTimeoutMs(readTimeoutMillis)
-                        .setAllowCrossProtocolRedirects(allowCrossProtocolRedirects)
-                        .createDataSource());
-    }
-
-    /**
      * Constructs a new instance that delegates to a provided {@link DataSource} for URI schemes other
      * than file, asset and content.
      *
@@ -218,7 +150,7 @@ public final class NiconicoLiveDataSource implements DataSource {
      * @param baseDataSource A {@link DataSource} to use for URI schemes other than file, asset and
      *     content. This {@link DataSource} should normally support at least http(s).
      */
-    public NiconicoLiveDataSource(Context context, DataSource baseDataSource) {
+    public RoutingDataSource(Context context, DataSource baseDataSource) {
         this.context = context.getApplicationContext();
         this.baseDataSource = Assertions.checkNotNull(baseDataSource);
         transferListeners = new ArrayList<>();

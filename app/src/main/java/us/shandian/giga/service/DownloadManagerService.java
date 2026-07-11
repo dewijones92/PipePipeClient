@@ -381,6 +381,53 @@ public class DownloadManagerService extends Service {
      * @param nearLength   the approximated final length of the file
      * @param recoveryInfo array of MissionRecoveryInfo, in case is required recover the download
      */
+    /**
+     * Assemble and start a mission for a selected stream plus an optional secondary stream:
+     * builds the URL/recovery arrays and the HLS resource descriptors, and drops the
+     * post-processing step when an HLS resource is involved. Shared tail of the download
+     * dialog and the direct downloader.
+     */
+    public static void startMission(Context context,
+                                    org.schabi.newpipe.extractor.stream.Stream selectedStream,
+                                    @Nullable org.schabi.newpipe.extractor.stream.Stream
+                                            secondaryStream,
+                                    StoredFileHelper storage, char kind, int threads,
+                                    String source, @Nullable String psName,
+                                    @Nullable String[] psArgs, long nearLength) {
+        final String[] urls;
+        final MissionRecoveryInfo[] recoveryInfo;
+        if (secondaryStream == null) {
+            urls = new String[]{
+                    selectedStream.getContent()
+            };
+            recoveryInfo = new MissionRecoveryInfo[]{
+                    new MissionRecoveryInfo(selectedStream)
+            };
+        } else {
+            urls = new String[]{
+                    selectedStream.getContent(),
+                    secondaryStream.getContent()
+            };
+            recoveryInfo = new MissionRecoveryInfo[]{new MissionRecoveryInfo(selectedStream),
+                    new MissionRecoveryInfo(secondaryStream)};
+        }
+
+        final String[] resourceDeliveryMethods = HlsDownloadStreamHelper
+                .buildResourceDeliveryMethods(selectedStream, secondaryStream);
+        final String[] resourceManifestUrls = HlsDownloadStreamHelper
+                .buildResourceManifestUrls(selectedStream, secondaryStream);
+        final boolean[] resourceIsUrls = HlsDownloadStreamHelper
+                .buildResourceIsUrls(selectedStream, secondaryStream);
+        if (HlsDownloadStreamHelper.containsHlsResource(resourceDeliveryMethods,
+                resourceManifestUrls, urls)) {
+            psName = null;
+            psArgs = null;
+        }
+
+        startMission(context, urls, storage, kind, threads, source, psName, psArgs, nearLength,
+                recoveryInfo, resourceDeliveryMethods, resourceManifestUrls, resourceIsUrls);
+    }
+
     public static void startMission(Context context, String[] urls, StoredFileHelper storage,
                                     char kind, int threads, String source, String psName,
                                     String[] psArgs, long nearLength, MissionRecoveryInfo[] recoveryInfo,

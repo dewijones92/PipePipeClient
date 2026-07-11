@@ -39,28 +39,7 @@ public class LocalBookmarkPlaylistItemHolder extends LocalPlaylistItemHolder {
 
         super.updateFromItem(localItem, historyRecordManager, dateTimeFormatter);
 
-        if (itemHandleView != null
-                && itemHandleView.getLayoutParams()
-                instanceof android.widget.RelativeLayout.LayoutParams) {
-            final android.widget.RelativeLayout.LayoutParams params =
-                    (android.widget.RelativeLayout.LayoutParams) itemHandleView
-                            .getLayoutParams();
-            if (itemUploaderView == null
-                    || android.text.TextUtils.isEmpty(itemUploaderView.getText())
-                    || itemUploaderView.getVisibility() != View.VISIBLE) {
-                params.removeRule(android.widget.RelativeLayout.ALIGN_TOP);
-                params.removeRule(android.widget.RelativeLayout.ALIGN_BOTTOM);
-                params.addRule(android.widget.RelativeLayout.ALIGN_TOP, R.id.itemTitleView);
-                params.addRule(android.widget.RelativeLayout.ALIGN_BOTTOM, R.id.itemTitleView);
-            } else {
-                params.removeRule(android.widget.RelativeLayout.ALIGN_TOP);
-                params.removeRule(android.widget.RelativeLayout.ALIGN_BOTTOM);
-                params.addRule(android.widget.RelativeLayout.ALIGN_TOP, R.id.itemUploaderView);
-                params.addRule(android.widget.RelativeLayout.ALIGN_BOTTOM,
-                        R.id.itemUploaderView);
-            }
-            itemHandleView.setLayoutParams(params);
-        }
+        alignHandleView(itemHandleView);
     }
 
     private View.OnTouchListener getOnTouchListener(final PlaylistMetadataEntry item) {

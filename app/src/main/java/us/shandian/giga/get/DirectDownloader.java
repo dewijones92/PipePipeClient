@@ -189,11 +189,6 @@ public class DirectDownloader {
         Stream secondaryStream = null;
         final char kind;
         int threads = 4;
-        final String[] urls;
-        final MissionRecoveryInfo[] recoveryInfo;
-        final String[] resourceDeliveryMethods;
-        final String[] resourceManifestUrls;
-        final boolean[] resourceIsUrls;
         String psName = null;
         String[] psArgs = null;
         long nearLength = 0;
@@ -247,36 +242,7 @@ public class DirectDownloader {
             default:
                 throw new RuntimeException("Unknown download type"); // should never happen
         }
-        if (secondaryStream == null) {
-            urls = new String[]{
-                    selectedStream.getContent()
-            };
-            recoveryInfo = new MissionRecoveryInfo[]{
-                    new MissionRecoveryInfo(selectedStream)
-            };
-        } else {
-            urls = new String[]{
-                    selectedStream.getContent(),
-                    secondaryStream.getContent()
-            };
-            recoveryInfo = new MissionRecoveryInfo[]{new MissionRecoveryInfo(selectedStream),
-                    new MissionRecoveryInfo(secondaryStream)};
-        }
-
-        resourceDeliveryMethods = HlsDownloadStreamHelper
-                .buildResourceDeliveryMethods(selectedStream, secondaryStream);
-        resourceManifestUrls = HlsDownloadStreamHelper
-                .buildResourceManifestUrls(selectedStream, secondaryStream);
-        resourceIsUrls = HlsDownloadStreamHelper
-                .buildResourceIsUrls(selectedStream, secondaryStream);
-        if (HlsDownloadStreamHelper.containsHlsResource(resourceDeliveryMethods,
-                resourceManifestUrls, urls)) {
-            psName = null;
-            psArgs = null;
-        }
-
-        DownloadManagerService.startMission(context, urls, storage, kind, threads,
-                currentInfo.getUrl(), psName, psArgs, nearLength, recoveryInfo,
-                resourceDeliveryMethods, resourceManifestUrls, resourceIsUrls);
+        DownloadManagerService.startMission(context, selectedStream, secondaryStream, storage,
+                kind, threads, currentInfo.getUrl(), psName, psArgs, nearLength);
     }
 }

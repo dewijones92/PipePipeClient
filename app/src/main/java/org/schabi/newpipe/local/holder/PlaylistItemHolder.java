@@ -58,4 +58,26 @@ public abstract class PlaylistItemHolder extends LocalItemHolder {
             }
         }
     }
+
+    /**
+     * Vertically align a drag-handle view with the uploader line, or with the title when the
+     * uploader line is empty or hidden. Shared by the bookmark playlist holders.
+     */
+    protected void alignHandleView(final View itemHandleView) {
+        if (itemHandleView == null || !(itemHandleView.getLayoutParams()
+                instanceof android.widget.RelativeLayout.LayoutParams)) {
+            return;
+        }
+        final android.widget.RelativeLayout.LayoutParams params =
+                (android.widget.RelativeLayout.LayoutParams) itemHandleView.getLayoutParams();
+        final int anchor = itemUploaderView == null
+                || android.text.TextUtils.isEmpty(itemUploaderView.getText())
+                || itemUploaderView.getVisibility() != View.VISIBLE
+                ? R.id.itemTitleView : R.id.itemUploaderView;
+        params.removeRule(android.widget.RelativeLayout.ALIGN_TOP);
+        params.removeRule(android.widget.RelativeLayout.ALIGN_BOTTOM);
+        params.addRule(android.widget.RelativeLayout.ALIGN_TOP, anchor);
+        params.addRule(android.widget.RelativeLayout.ALIGN_BOTTOM, anchor);
+        itemHandleView.setLayoutParams(params);
+    }
 }

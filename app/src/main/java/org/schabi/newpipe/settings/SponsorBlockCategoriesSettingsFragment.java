@@ -25,73 +25,11 @@ public class SponsorBlockCategoriesSettingsFragment extends BasePreferenceFragme
 
         final Preference allOnPreference =
                 findPreference(getString(R.string.sponsor_block_category_all_on_key));
-        allOnPreference.setOnPreferenceClickListener(p -> {
-            final SwitchPreference sponsorCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_sponsor_key));
-            final SwitchPreference introCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_intro_key));
-            final SwitchPreference outroCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_outro_key));
-            final SwitchPreference interactionCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_interaction_key));
-            final SwitchPreference highlightCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_highlight_key));
-            final SwitchPreference selfPromoCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_self_promo_key));
-            final SwitchPreference nonMusicCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_non_music_key));
-            final SwitchPreference previewCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_preview_key));
-            final SwitchPreference fillerCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_filler_key));
-
-            sponsorCategoryPreference.setChecked(true);
-            introCategoryPreference.setChecked(true);
-            outroCategoryPreference.setChecked(true);
-            interactionCategoryPreference.setChecked(true);
-            highlightCategoryPreference.setChecked(true);
-            selfPromoCategoryPreference.setChecked(true);
-            nonMusicCategoryPreference.setChecked(true);
-            previewCategoryPreference.setChecked(true);
-            fillerCategoryPreference.setChecked(true);
-
-            return true;
-        });
+        allOnPreference.setOnPreferenceClickListener(p -> setAllCategories(true));
 
         final Preference allOffPreference =
                 findPreference(getString(R.string.sponsor_block_category_all_off_key));
-        allOffPreference.setOnPreferenceClickListener(p -> {
-            final SwitchPreference sponsorCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_sponsor_key));
-            final SwitchPreference introCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_intro_key));
-            final SwitchPreference outroCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_outro_key));
-            final SwitchPreference interactionCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_interaction_key));
-            final SwitchPreference highlightCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_highlight_key));
-            final SwitchPreference selfPromoCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_self_promo_key));
-            final SwitchPreference nonMusicCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_non_music_key));
-            final SwitchPreference previewCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_preview_key));
-            final SwitchPreference fillerCategoryPreference =
-                    findPreference(getString(R.string.sponsor_block_category_filler_key));
-
-            sponsorCategoryPreference.setChecked(false);
-            introCategoryPreference.setChecked(false);
-            outroCategoryPreference.setChecked(false);
-            interactionCategoryPreference.setChecked(false);
-            highlightCategoryPreference.setChecked(false);
-            selfPromoCategoryPreference.setChecked(false);
-            nonMusicCategoryPreference.setChecked(false);
-            previewCategoryPreference.setChecked(false);
-            fillerCategoryPreference.setChecked(false);
-
-            return true;
-        });
+        allOffPreference.setOnPreferenceClickListener(p -> setAllCategories(false));
 
         final Preference resetPreference =
                 findPreference(getString(R.string.sponsor_block_category_reset_key));
@@ -141,6 +79,25 @@ public class SponsorBlockCategoriesSettingsFragment extends BasePreferenceFragme
                     .show();
             return true;
         });
+    }
+
+    private boolean setAllCategories(final boolean checked) {
+        final int[] categoryKeys = {
+                R.string.sponsor_block_category_sponsor_key,
+                R.string.sponsor_block_category_intro_key,
+                R.string.sponsor_block_category_outro_key,
+                R.string.sponsor_block_category_interaction_key,
+                R.string.sponsor_block_category_highlight_key,
+                R.string.sponsor_block_category_self_promo_key,
+                R.string.sponsor_block_category_non_music_key,
+                R.string.sponsor_block_category_preview_key,
+                R.string.sponsor_block_category_filler_key,
+        };
+        for (final int key : categoryKeys) {
+            final SwitchPreference preference = findPreference(getString(key));
+            preference.setChecked(checked);
+        }
+        return true;
     }
 
     private void setColorPreference(final SharedPreferences.Editor editor,
