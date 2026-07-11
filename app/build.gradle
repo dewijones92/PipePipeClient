@@ -60,6 +60,16 @@ android {
     }
 
     signingConfigs {
+        // Committed keystore so every debug build — local or CI — carries the SAME certificate.
+        // Android (and therefore Obtainium) only installs an update whose signature matches the
+        // installed app; CI's auto-generated per-run debug keystore broke release-to-release
+        // updates (v4 and v5 shipped with different certs). Not a secret: debug-only identity.
+        dewipipeDebug {
+            storeFile rootProject.file("keystore/dewipipe-debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
         if (keyPath && keyStorePassword && signingKeyAlias && signingKeyPassword) {
             release {
                 storeFile file(keyPath)
@@ -75,6 +85,7 @@ android {
             debuggable true
             applicationIdSuffix ".debug"
             resValue "string", "app_name", "DewiPipe"
+            signingConfig signingConfigs.dewipipeDebug
         }
 
         release {
