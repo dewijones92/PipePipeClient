@@ -93,6 +93,17 @@ public final class ChannelTabHelper {
         return showChannelTab(context, sharedPreferences, key);
     }
 
+    /**
+     * @return whether this tab is the channel's livestreams tab. Feed loading keeps
+     * future-dated items from this tab even when the user filters future items, so
+     * scheduled/upcoming livestreams still reach the What's New feed.
+     */
+    public static boolean isLiveTab(final ListLinkHandler tab) {
+        final List<FilterItem> contentFilters = tab.getContentFilters();
+        return !contentFilters.isEmpty()
+                && ChannelTabs.LIVESTREAMS.equals(contentFilters.get(0).getName());
+    }
+
     public static boolean fetchFeedChannelTab(final Context context,
                                               final SharedPreferences sharedPreferences,
                                               final ListLinkHandler tab) {

@@ -162,7 +162,11 @@ class FeedLoadManager(private val context: Context) {
                                             val feedInfo = FeedInfo.getInfo(feedExtractor)
                                             errors.addAll(feedInfo.errors)
                                             originalInfo = feedInfo
-                                            streams = feedInfo.relatedItems
+                                            streams = filterFeedStreams(
+                                                feedInfo.relatedItems,
+                                                filterFutureItems,
+                                                keepFutureItems = false
+                                            )
                                         }
                                 }
 
@@ -197,24 +201,32 @@ class FeedLoadManager(private val context: Context) {
                                         }
                                         .flatMap { (channelTabInfo, linkHandler) ->
                                             errors.addAll(channelTabInfo.errors)
-                                            if (channelTabInfo.relatedItems.isEmpty()) {
+                                            val tabItems = if (channelTabInfo.relatedItems.isEmpty()) {
                                                 if (channelTabInfo.nextPage == null) {
-                                                    return@flatMap emptyList()
+                                                    emptyList()
+                                                } else {
+                                                    val infoItemsPage = getMoreChannelTabItems(
+                                                        subscriptionEntity.serviceId,
+                                                        linkHandler, channelTabInfo.nextPage
+                                                    )
+                                                        .blockingGet()
+                                                    errors.addAll(infoItemsPage.errors)
+                                                    infoItemsPage.items
                                                 }
-                                                val infoItemsPage = getMoreChannelTabItems(
-                                                    subscriptionEntity.serviceId,
-                                                    linkHandler, channelTabInfo.nextPage
-                                                )
-                                                    .blockingGet()
-                                                errors.addAll(infoItemsPage.errors)
-                                                return@flatMap infoItemsPage.items
                                             } else {
-                                                return@flatMap channelTabInfo.relatedItems
+                                                channelTabInfo.relatedItems
                                             }
+                                            // Scheduled/upcoming livestreams carry a future upload
+                                            // date; the Live tab is exempt from the future-items
+                                            // filter so they still reach the feed, while the filter
+                                            // keeps hiding future-dated items from other tabs.
+                                            filterFeedStreams(
+                                                tabItems.filterIsInstance<StreamInfoItem>(),
+                                                filterFutureItems,
+                                                keepFutureItems = ChannelTabHelper.isLiveTab(linkHandler)
+                                            )
                                         }
-                                        .filterIsInstance<StreamInfoItem>()
                                 }
-                                streams = streams?.filterNot { it.isRoundPlayStream || (filterFutureItems && it.uploadDate != null && it.uploadDate!!.offsetDateTime().isAfter(OffsetDateTime.now())) }
 
                                 return@defer Flowable.just(
                                     FeedUpdateInfo(
@@ -267,6 +279,24 @@ class FeedLoadManager(private val context: Context) {
 
     fun cancel() {
         cancelSignal.set(true)
+    }
+
+    /**
+     * Drops streams the feed should never show (round-play) and, when the user filters
+     * future items, future-dated ones — unless [keepFutureItems] marks this batch as
+     * scheduled livestreams, which are the future-dated items users do want to see.
+     */
+    private fun filterFeedStreams(
+        items: List<StreamInfoItem>,
+        filterFutureItems: Boolean,
+        keepFutureItems: Boolean,
+    ): List<StreamInfoItem> {
+        return items.filterNot {
+            it.isRoundPlayStream || (
+                filterFutureItems && !keepFutureItems && it.uploadDate != null &&
+                    it.uploadDate!!.offsetDateTime().isAfter(OffsetDateTime.now())
+                )
+        }
     }
 
     private fun broadcastProgress() {
