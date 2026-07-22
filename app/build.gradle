@@ -197,7 +197,7 @@ dependencies {
 /** yt-dlp on Android 6.0 — our from-source API-23 stack (L1 native runtime -> L3 youtubedl-android
  *  -> L4 ytdlp-kt typed SDK). Single dep: ytdlp-kt's library/ffmpeg/aria2c + their jniLibs come
  *  transitively at runtime scope. https://github.com/dewijones92/youtubedl-android **/
-    implementation 'com.github.dewijones92.youtubedl-android:ytdlp-kt:v2026.07.20.234742-api23'
+    implementation 'com.github.dewijones92.youtubedl-android:ytdlp-kt:v2026.07.21.234255-api23'
 
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test:runner:1.5.2'
